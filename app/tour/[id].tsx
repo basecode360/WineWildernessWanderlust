@@ -1,63 +1,110 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  Image,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { Audio } from 'expo-av';
-import { useLocalSearchParams } from 'expo-router';
 import { tours } from '@/constants/tours';
+import { useProximity } from '@/hooks/useProximity';
 import { downloadFile } from '@/utils/download';
 import { Ionicons } from '@expo/vector-icons';
-import * as FileSystem from 'expo-file-system';
+import { Audio } from 'expo-av';
+import { useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export default function TourDetailScreen() {
+  // 1) Hooks at the top
   const { id } = useLocalSearchParams<{ id: string }>();
-  const tour = tours.find((t) => t.id === id);
   const [soundObjects, setSoundObjects] = useState<Record<string, Audio.Sound>>(
     {}
   );
+  const [isPlaying, setIsPlaying] = useState<Record<string, boolean>>({});
 
-  if (!tour) return <Text style={styles.center}>Tour not found</Text>;
+  // 2) Find tour
+  const tour = tours.find((t) => t.id === id);
 
-  // Pre-download media on mount (optional if not already done)
+  // 3) Preload / download audio into Audio.Sound objects
   useEffect(() => {
+    if (!tour) return; // safe-guard, not an early return of the component
+    let isMounted = true;
+
     (async () => {
       try {
+        // Download media if needed, then create Sound instances
         for (const stop of tour.stops) {
-          const audioName = stop.audio.split('/').pop()!;
-          const localUri = await downloadFile(stop.audio, audioName);
+          // Download audio file
+          const audioName = stop.audioUrl.split('/').pop()!;
+          const localAudioUri = await downloadFile(stop.audioUrl, audioName);
+
+          // Create Sound
           const { sound } = await Audio.Sound.createAsync(
-            { uri: localUri },
+            { uri: localAudioUri },
             { shouldPlay: false }
           );
-          setSoundObjects((s) => ({ ...s, [stop.id]: sound }));
+
+          if (isMounted) {
+            setSoundObjects((prev) => ({ ...prev, [stop.id]: sound }));
+          }
         }
-      } catch {
+      } catch (e) {
         Alert.alert('Error', 'Failed to load audio files.');
       }
     })();
-    // Unload on unmount
+
     return () => {
+      isMounted = false;
+      // Unload all sounds on unmount
       Object.values(soundObjects).forEach((snd) => snd.unloadAsync());
     };
-  }, []);
+  }, [tour]);
 
+  // 4) Handler to play/pause
   const togglePlay = async (stopId: string) => {
     const sound = soundObjects[stopId];
     if (!sound) return;
     const status = await sound.getStatusAsync();
-    if ('isPlaying' in status && status.isPlaying) {
-      await sound.pauseAsync();
-    } else {
-      await sound.playAsync();
-    }
+    status.isPlaying ? await sound.pauseAsync() : await sound.playAsync();
   };
 
+  // 1. Prepare stops for proximity hook
+  const proximityStops = tour
+    ? tour.stops.map((stop) => ({
+        id: stop.id,
+        coordinates: stop.coordinates,
+        audioSound: soundObjects[stop.id],
+        title: stop.title,
+      }))
+    : [];
+
+  // 2. Use proximity to auto-play
+  useProximity(
+    proximityStops,
+    async (stop) => {
+      const sound = soundObjects[stop.id];
+      if (sound) {
+        const status = await sound.getStatusAsync();
+        if (!status.isPlaying) {
+          await sound.playAsync();
+          Alert.alert('Now Playing', stop.title);
+        }
+      }
+    },
+    150
+  );
+
+  // 5) Now it’s safe to return early if tour is missing
+  if (!tour) {
+    return (
+      <View style={styles.center}>
+        <Text>Tour not found</Text>
+      </View>
+    );
+  }
+
+  // 6) Render
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{tour.title}</Text>
@@ -65,8 +112,8 @@ export default function TourDetailScreen() {
       <Text style={styles.price}>${tour.price.toFixed(2)}</Text>
 
       <TouchableOpacity
-        onPress={() => Alert.alert('Downloaded', 'Media already saved.')}
         style={styles.downloadButton}
+        onPress={() => Alert.alert('Downloaded')}
       >
         <Ionicons name="download" size={18} color="#fff" />
         <Text style={styles.downloadText}>Download Complete</Text>
@@ -76,48 +123,21 @@ export default function TourDetailScreen() {
       <FlatList
         data={tour.stops}
         keyExtractor={(stop) => stop.id}
-        renderItem={({ item }) => {
-          // We cannot use async/await in render, so we need to track playing state
-          // For simplicity, let's show 'pause' if we have a sound object and it's playing, otherwise 'play'
-          // We'll need to add a state to track which stop is currently playing
-          const [playingStopId, setPlayingStopId] = useState<string | null>(null);
-
-          const handleTogglePlay = async (stopId: string) => {
-            const sound = soundObjects[stopId];
-            if (!sound) return;
-            const status = await sound.getStatusAsync();
-            if ('isLoaded' in status && status.isLoaded && status.isPlaying) {
-              await sound.pauseAsync();
-              setPlayingStopId(null);
-            } else if ('isLoaded' in status && status.isLoaded) {
-              await sound.playAsync();
-              setPlayingStopId(stopId);
-            }
-          };
-
-          const isPlaying = playingStopId === item.id;
-
+        renderItem={({ item: stop }) => {
           return (
             <View style={styles.stopItem}>
-              <Image
-                source={{
-                  uri: `file://${FileSystem.documentDirectory}${item.image
-                    .split('/')
-                    .pop()}`,
-                }}
-                style={styles.stopImage}
-              />
+              <Image source={stop.image} style={styles.stopImage} />
               <View style={styles.stopText}>
-                <Text style={styles.stopName}>{item.title}</Text>
-                <Text numberOfLines={2}>{item.transcript}</Text>
+                <Text style={styles.stopName}>{stop.title}</Text>
+                <Text numberOfLines={2}>{stop.narration}</Text>
               </View>
               <TouchableOpacity
-                onPress={() => handleTogglePlay(item.id)}
+                onPress={() => togglePlay(stop.id)}
                 style={styles.playButton}
               >
                 <Ionicons
-                  name={isPlaying ? 'pause' : 'play'}
-                  size={24}
+                  name={isPlaying[stop.id] ? 'pause-circle' : 'play-circle'}
+                  size={28}
                   color="#5CC4C4"
                 />
               </TouchableOpacity>
@@ -141,8 +161,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
-    gap: 8,
     marginBottom: 20,
+    gap: 8,
   },
   downloadText: { color: '#fff', fontWeight: '600' },
   stopsTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
@@ -152,16 +172,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderColor: '#eee',
+    gap: 10,
   },
-  stopImage: {
-    width: 80,
-    height: 60,
-    borderRadius: 8,
-    marginRight: 10,
-  },
+  stopImage: { width: 80, height: 60, borderRadius: 8 },
   stopText: { flex: 1 },
   stopName: { fontWeight: 'bold', marginBottom: 4 },
-  playButton: {
-    padding: 8,
-  },
+  playButton: { padding: 8 },
 });
