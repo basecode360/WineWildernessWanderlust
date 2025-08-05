@@ -2,21 +2,21 @@
 // This approach works with Expo and handles local audio files properly
 
 export const audioAssets = {
-  'Start of Tour.wav': require('@/assets/tour1/audios/Intro.wav'),
-  'Info Stop 1 Bar Island.wav': require('@/assets/tour1/audios/Info Stop 1_ Bar Island – A Walk Across the Ocean Floor.wav'),
-  'Lobster Roll Stop 1 Bar Harbor Lobster Pound.wav': require('@/assets/tour1/audios/Lobster Roll Stop 1_ Bar Harbor Lobster Pound.wav'),
-  'Info Stop 2 Blueberries in Maine.wav': require('@/assets/tour1/audios/Info Stop 2_ Blueberries in Maine.wav'),
-  'Info Stop 3 The Lobster Industry.wav': require('@/assets/tour1/audios/Info Stop 3_ The Lobster Industry.wav'),
-  'Lobster Roll Stop 2 Abels Lobster.wav': require(`@/assets/tour1/audios/Lobster Roll Stop 2_ Abels Lobster.wav`),
-//   'Info Stop 4 Creation of Acadia National Park.wav': require('@/assets/tour1/audios/Info Stop 4 Creation of Acadia National Park.wav'),
-//   'Info Stop 5 Atlantic Brewing Company.wav': require('@/assets/tour1/audios/Info Stop 5 Atlantic Brewing Company.wav'),
-//   'Lobster Roll Stop 3 The Travelin Lobster.wav': require('@/assets/tour1/audios/Lobster Roll Stop 3 The Travelin Lobster.wav'),
-//   'Info Stop 6 Life on Mount Desert Island.wav': require('@/assets/tour1/audios/Info Stop 6 Life on Mount Desert Island.wav'),
-//   'Info Stop 7 Salisbury Cove.wav': require('@/assets/tour1/audios/Info Stop 7 Salisbury Cove.wav'),
-  'Info Stop 8 Pirates Cove Mini Golf.wav': require('@/assets/tour1/audios/Info Stop 8_ Pirates Cove Mini Golf.wav'),
-//   'Info Stop 9 Drive Back to Bar Harbor.wav': require('@/assets/tour1/audios/Info Stop 9 Drive Back to Bar Harbor.wav'),
-//   'Bonus Stop Lobster Ice Cream.wav': require('@/assets/tour1/audios/Bonus Stop Lobster Ice Cream.wav'),
-//   'Outro.wav': require('@/assets/tour1/audios/Outro.wav'),
+  'Intro.wav': require('@/assets/tour1/audios/Intro.wav'),
+  'Info Stop 1_ Bar Island – A Walk Across the Ocean Floor.wav': require('@/assets/tour1/audios/Info Stop 1_ Bar Island – A Walk Across the Ocean Floor.wav'),
+  'Lobster Roll Stop 1_ Bar Harbor Lobster Pound.wav': require('@/assets/tour1/audios/Lobster Roll Stop 1_ Bar Harbor Lobster Pound.wav'),
+  'Info Stop 2_ Blueberries in Maine.wav': require('@/assets/tour1/audios/Info Stop 2_ Blueberries in Maine.wav'),
+  'Info Stop 3_ The Lobster Industry.wav': require('@/assets/tour1/audios/Info Stop 3_ The Lobster Industry.wav'),
+  'Lobster Roll Stop 2_ Abels Lobster.wav': require(`@/assets/tour1/audios/Lobster Roll Stop 2_ Abels Lobster.wav`),
+  'Info Stop 4_ Creation of Acadia National Park.wav': require('@/assets/tour1/audios/Info Stop 4_ Creation of Acadia National Park.wav'),
+  'Info Stop 5_ Atlantic Brewing Company.wav': require('@/assets/tour1/audios/Info Stop 5_ Atlantic Brewing Company.wav'),
+  'Lobster Roll Stop 3_ The Travelin Lobster.wav': require('@/assets/tour1/audios/Lobster Roll Stop 3_ The Travelin_ Lobster.wav'),
+  'Info Stop 6_ Life on Mount Desert Island.wav': require('@/assets/tour1/audios/Info Stop 6_ Life on Mount Desert Island.wav'),
+  'Info Stop 7_ Salisbury Cove.wav': require('@/assets/tour1/audios/Info Stop 7_ Salisbury Cove – The Quiet Side of the Island.wav'),
+  'Info Stop 8_ Pirates Cove Mini Golf.wav': require('@/assets/tour1/audios/Info Stop 8_ Pirates Cove Mini Golf.wav'),
+  'Info Stop 9_ Drive Back to Bar Harbor.wav': require('@/assets/tour1/audios/Info Stop 9_ Drive Back to Bar Harbor.wav'),
+  'Bonus Stop_ Lobster Ice Cream.wav': require('@/assets/tour1/audios/Bonus Stop_ Lobster Ice Cream in Bar Harbor.wav'),
+  'Outro.wav': require('@/assets/tour1/audios/Outro.wav'),
 } as const;
 
 export const getAudioAsset = (fileName: string) => {

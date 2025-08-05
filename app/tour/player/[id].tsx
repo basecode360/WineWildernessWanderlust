@@ -1,4 +1,4 @@
-// app/tour/player/[id].tsx - Tour Player Screen
+// app/tour/player/[id].tsx - Updated Tour Player Screen with Offline Support
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as Location from 'expo-location';
@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+import { useOffline } from '../../../contexts/OfflineContext';
 import { calculateDistance, getTourById } from '../../../data/tours';
 import { AudioState, LocationData, TourStop } from '../../../types/tour';
 import { getAudioAsset } from '../../../utils/audioAssets';
@@ -26,6 +27,8 @@ const PROXIMITY_THRESHOLD = 100; // meters
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const tour = getTourById(id as string);
+  const { isTourOffline, getOfflineAudioPath, getOfflineImagePath } =
+    useOffline();
 
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(
     null
@@ -38,6 +41,7 @@ export default function TourPlayerScreen() {
   });
   const [currentStopIndex, setCurrentStopIndex] = useState(0);
   const [isLocationEnabled, setIsLocationEnabled] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   const audioRef = useRef<Audio.Sound | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(
@@ -45,6 +49,7 @@ export default function TourPlayerScreen() {
   );
 
   useEffect(() => {
+    checkOfflineMode();
     requestLocationPermission();
     return () => {
       if (locationSubscription.current) {
@@ -61,6 +66,14 @@ export default function TourPlayerScreen() {
       startLocationTracking();
     }
   }, [isLocationEnabled, tour]);
+
+  const checkOfflineMode = async () => {
+    if (tour) {
+      const isOffline = isTourOffline(tour.id);
+      setIsOfflineMode(isOffline);
+      console.log('📱 Tour offline mode:', isOffline);
+    }
+  };
 
   const requestLocationPermission = async () => {
     try {
@@ -129,8 +142,9 @@ export default function TourPlayerScreen() {
 
   const triggerAudioForStop = async (stop: TourStop, index: number) => {
     try {
-      console.log('Attempting to play audio for stop:', stop.title);
-      console.log('Audio file name:', stop.audio);
+      console.log('🎵 Attempting to play audio for stop:', stop.title);
+      console.log('📱 Offline mode:', isOfflineMode);
+      console.log('🎵 Audio file name:', stop.audio);
 
       // Initialize audio mode first
       await Audio.setAudioModeAsync({
@@ -147,25 +161,42 @@ export default function TourPlayerScreen() {
         audioRef.current = null;
       }
 
-      // Get the local audio asset
-      const audioSource = getAudioAsset(stop.audio);
-      console.log('Audio source:', audioSource);
+      let audioSource;
+
+      if (isOfflineMode && tour) {
+        // Try to get offline audio first
+        console.log('🔍 Looking for offline audio...');
+        const offlineAudioPath = await getOfflineAudioPath(tour.id, stop.id);
+
+        if (offlineAudioPath) {
+          console.log('✅ Found offline audio:', offlineAudioPath);
+          audioSource = { uri: offlineAudioPath };
+        } else {
+          console.log(
+            '❌ Offline audio not found, falling back to bundled asset'
+          );
+          audioSource = getAudioAsset(stop.audio);
+        }
+      } else {
+        // Use bundled audio asset
+        console.log('📦 Using bundled audio asset');
+        audioSource = getAudioAsset(stop.audio);
+      }
 
       if (!audioSource) {
-        console.error('Audio file not found:', stop.audio);
+        console.error('❌ Audio file not found:', stop.audio);
         Alert.alert('Audio Error', `Audio file not found: ${stop.audio}`);
         return;
       }
 
-      // FIXED: Use Audio.Sound.createAsync instead of Audio.loadAsync
-      console.log('Creating audio sound...');
+      console.log('🎵 Creating audio sound...');
       const { sound } = await Audio.Sound.createAsync(audioSource, {
         shouldPlay: true,
         volume: 1.0,
         isLooping: false,
       });
 
-      console.log('Audio sound created successfully');
+      console.log('✅ Audio sound created successfully');
       audioRef.current = sound;
 
       setAudioState({
@@ -197,12 +228,13 @@ export default function TourPlayerScreen() {
         }
       });
 
-      // Show notification
-      Alert.alert('🎧 Audio Started', `Now playing: ${stop.title}`, [
+      // Show notification with offline indicator
+      const modeText = isOfflineMode ? ' (Offline)' : '';
+      Alert.alert('🎧 Audio Started', `Now playing: ${stop.title}${modeText}`, [
         { text: 'OK' },
       ]);
     } catch (error) {
-      console.error('Error playing audio:', error);
+      console.error('❌ Error playing audio:', error);
       Alert.alert('Audio Error', `Could not play audio file: ${error.message}`);
     }
   };
@@ -235,6 +267,58 @@ export default function TourPlayerScreen() {
       console.error('Error toggling audio:', error);
       Alert.alert('Playback Error', 'Could not toggle audio playback');
     }
+  };
+
+  const getStopImage = async (stop: TourStop) => {
+    if (isOfflineMode && tour && stop.image) {
+      const offlineImagePath = await getOfflineImagePath(tour.id, stop.image);
+      if (offlineImagePath) {
+        return { uri: offlineImagePath };
+      }
+    }
+    return stop.image ? getImageAsset(stop.image) : null;
+  };
+
+  const renderStopImage = (stop: TourStop) => {
+    if (!stop.image) return null;
+
+    // For offline mode, we need to handle the image differently
+    if (isOfflineMode && tour) {
+      // This is a simplified approach - in a real app you'd want to preload these
+      return (
+        <Image
+          source={getImageAsset(stop.image)} // Fallback to bundled asset
+          style={styles.stopThumbnail}
+          resizeMode="cover"
+          onError={() => {
+            console.warn('Failed to load image:', stop.image);
+          }}
+        />
+      );
+    }
+
+    return (
+      <Image
+        source={getImageAsset(stop.image)}
+        style={styles.stopThumbnail}
+        resizeMode="cover"
+      />
+    );
+  };
+
+  const renderCurrentStopImage = (stop: TourStop) => {
+    if (!stop?.image) return null;
+
+    return (
+      <Image
+        source={getImageAsset(stop.image)}
+        style={styles.currentStopImage}
+        resizeMode="cover"
+        onError={() => {
+          console.warn('Failed to load current stop image:', stop.image);
+        }}
+      />
+    );
   };
 
   if (!tour) {
@@ -276,34 +360,41 @@ export default function TourPlayerScreen() {
           ))}
         </MapView>
 
-        {/* Location Status */}
-        <View style={styles.locationStatus}>
-          <Ionicons
-            name={isLocationEnabled ? 'location' : 'location-outline'}
-            size={16}
-            color={isLocationEnabled ? '#4CAF50' : '#666'}
-          />
-          <Text
-            style={[
-              styles.locationText,
-              { color: isLocationEnabled ? '#4CAF50' : '#666' },
-            ]}
-          >
-            {isLocationEnabled ? 'GPS Active' : 'GPS Disabled'}
-          </Text>
+        {/* Status Indicators */}
+        <View style={styles.statusContainer}>
+          {/* Location Status */}
+          <View style={styles.locationStatus}>
+            <Ionicons
+              name={isLocationEnabled ? 'location' : 'location-outline'}
+              size={16}
+              color={isLocationEnabled ? '#4CAF50' : '#666'}
+            />
+            <Text
+              style={[
+                styles.statusText,
+                { color: isLocationEnabled ? '#4CAF50' : '#666' },
+              ]}
+            >
+              {isLocationEnabled ? 'GPS Active' : 'GPS Disabled'}
+            </Text>
+          </View>
+
+          {/* Offline Status */}
+          {isOfflineMode && (
+            <View style={styles.offlineStatus}>
+              <Ionicons name="cloud-done" size={16} color="#4CAF50" />
+              <Text style={[styles.statusText, { color: '#4CAF50' }]}>
+                Offline Mode
+              </Text>
+            </View>
+          )}
         </View>
       </View>
 
       {/* Audio Controls */}
       <View style={styles.audioControls}>
         <View style={styles.currentStopInfo}>
-          {currentStop?.image && (
-            <Image
-              source={getImageAsset(currentStop.image)}
-              style={styles.currentStopImage}
-              resizeMode="cover"
-            />
-          )}
+          {renderCurrentStopImage(currentStop)}
           <Text style={styles.currentStopTitle}>
             {currentStop ? currentStop.title : 'Select a stop to begin'}
           </Text>
@@ -350,7 +441,12 @@ export default function TourPlayerScreen() {
 
       {/* Stops List */}
       <ScrollView style={styles.stopsList} showsVerticalScrollIndicator={false}>
-        <Text style={styles.stopsTitle}>Tour Stops ({tour.stops.length})</Text>
+        <Text style={styles.stopsTitle}>
+          Tour Stops ({tour.stops.length})
+          {isOfflineMode && (
+            <Text style={styles.offlineIndicator}> • Offline</Text>
+          )}
+        </Text>
         {tour.stops.map((stop, index) => (
           <TouchableOpacity
             key={stop.id}
@@ -370,13 +466,7 @@ export default function TourPlayerScreen() {
             </View>
 
             <View style={styles.stopContent}>
-              {stop.image && (
-                <Image
-                  source={getImageAsset(stop.image)}
-                  style={styles.stopThumbnail}
-                  resizeMode="cover"
-                />
-              )}
+              {renderStopImage(stop)}
               <View style={styles.stopTextContent}>
                 <Text style={styles.stopTitle}>{stop.title}</Text>
                 <Text style={styles.stopType}>
@@ -435,10 +525,21 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  locationStatus: {
+  statusContainer: {
     position: 'absolute',
     top: 10,
     right: 10,
+  },
+  locationStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  offlineStatus: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
@@ -446,7 +547,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  locationText: {
+  statusText: {
     marginLeft: 4,
     fontSize: 12,
     fontWeight: '600',
@@ -499,6 +600,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginBottom: 16,
+  },
+  offlineIndicator: {
+    color: '#4CAF50',
+    fontSize: 16,
   },
   stopItem: {
     flexDirection: 'row',

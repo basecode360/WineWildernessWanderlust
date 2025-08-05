@@ -1,9 +1,8 @@
-// app/tour/[id].tsx - Updated Tour Detail Screen with proper Stripe integration
+// app/tour/[id].tsx - Complete Tour Detail Screen with instant purchase status
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -14,61 +13,40 @@ import {
   View,
 } from 'react-native';
 import PaymentSheet from '../../components/payment/PaymentSheet';
+import { usePurchases } from '../../contexts/PurchaseContext';
+import { useOffline } from '../../contexts/OfflineContext';
 import { getTourById } from '../../data/tours';
-import { PaymentService } from '../../services/PaymentService';
 import { TourStop } from '../../types/tour';
 import { getImageAsset } from '../../utils/imageAssets';
 
 export default function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const tour = getTourById(id as string);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
-  const [isPurchased, setIsPurchased] = useState(false);
-  const [checkingPurchase, setCheckingPurchase] = useState(true);
 
-  const paymentService = PaymentService.getInstance();
+  const { hasPurchased, addPurchase } = usePurchases();
+  const {
+    isTourOffline,
+    downloadTour,
+    removeTour,
+    downloadProgress,
+    isDownloading,
+    formatStorageSize,
+    cancelDownload,
+  } = useOffline();
 
-  useEffect(() => {
-    if (tour) {
-      checkPurchaseStatus();
-    }
-  }, [tour]);
-
-  const checkPurchaseStatus = async () => {
-    try {
-      setCheckingPurchase(true);
-      console.log('Checking purchase status for tour:', id);
-
-      const hasPurchased = await paymentService.hasPurchasedTour(id as string);
-      console.log('Purchase status:', hasPurchased);
-
-      setIsPurchased(hasPurchased);
-
-      // Update local tour object for UI consistency
-      if (tour) {
-        tour.isPurchased = hasPurchased;
-      }
-    } catch (error) {
-      console.error('Error checking purchase status:', error);
-      // Don't set error state, just assume not purchased
-      setIsPurchased(false);
-    } finally {
-      setCheckingPurchase(false);
-    }
-  };
+  // Get purchase status instantly from cache
+  const isPurchased = hasPurchased(id as string);
+  const isOffline = isTourOffline(id as string);
+  const downloadingProgress = downloadProgress.get(id as string);
+  const downloading = isDownloading(id as string);
 
   const handlePurchase = async () => {
     if (!tour) return;
 
-    console.log(
-      'Handle purchase called. isPurchased:',
-      isPurchased,
-      'tour.isPurchased:',
-      tour.isPurchased
-    );
+    console.log('Handle purchase called. isPurchased:', isPurchased);
 
-    if (isPurchased || tour.isPurchased) {
+    if (isPurchased) {
       // Already purchased, start tour
       console.log('Tour already purchased, navigating to player');
       router.push(`/tour/player/${tour.id}`);
@@ -88,12 +66,9 @@ export default function TourDetailScreen() {
   const handlePurchaseSuccess = async () => {
     console.log('Purchase successful, updating UI');
     setShowPaymentSheet(false);
-    setIsPurchased(true);
 
-    // Update local tour object
-    if (tour) {
-      tour.isPurchased = true;
-    }
+    // Add to local cache immediately for instant UI update
+    addPurchase(id as string);
 
     // Show success message with option to start tour
     Alert.alert(
@@ -119,7 +94,7 @@ export default function TourDetailScreen() {
   };
 
   const handleDownload = async () => {
-    if (!isPurchased && !tour?.isPurchased) {
+    if (!isPurchased) {
       Alert.alert(
         'Purchase Required',
         'Please purchase the tour first to download it for offline use.'
@@ -127,25 +102,72 @@ export default function TourDetailScreen() {
       return;
     }
 
-    setIsDownloading(true);
+    if (isOffline) {
+      // Tour is already downloaded, offer to remove it
+      Alert.alert(
+        'Remove Offline Content',
+        'This tour is already available offline. Would you like to remove it to free up space?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await removeTour(id as string);
+                Alert.alert('Success', 'Tour removed from offline storage.');
+              } catch (error) {
+                Alert.alert(
+                  'Error',
+                  'Failed to remove tour from offline storage.'
+                );
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    if (downloading) {
+      // Download in progress, offer to cancel
+      Alert.alert(
+        'Cancel Download',
+        'Download is in progress. Would you like to cancel it?',
+        [
+          { text: 'No', style: 'cancel' },
+          {
+            text: 'Cancel Download',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await cancelDownload(id as string);
+              } catch (error) {
+                console.error('Error cancelling download:', error);
+              }
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    // Start download
     try {
-      // TODO: Implement actual download logic using StorageService
-      // This would download audio files and images for offline use
-      await new Promise((resolve) => setTimeout(resolve, 3000)); // Simulate download
-
-      Alert.alert('Download Complete', 'Tour is now available offline!');
-
-      // Update tour download status
-      if (tour) {
-        tour.isDownloaded = true;
+      const success = await downloadTour(id as string);
+      if (success) {
+        Alert.alert('Download Complete', 'Tour is now available offline!');
+      } else {
+        Alert.alert(
+          'Download Failed',
+          'There was an error downloading the tour. Please try again.'
+        );
       }
     } catch (error) {
       Alert.alert(
         'Download Failed',
         'There was an error downloading the tour. Please try again.'
       );
-    } finally {
-      setIsDownloading(false);
     }
   };
 
@@ -182,8 +204,6 @@ export default function TourDetailScreen() {
     </View>
   );
 
-  const showPurchased = isPurchased || tour.isPurchased;
-
   return (
     <ScrollView style={styles.container}>
       {/* Tour Header Image */}
@@ -200,7 +220,7 @@ export default function TourDetailScreen() {
           </View>
         )}
 
-        {showPurchased && (
+        {isPurchased && (
           <View style={styles.purchasedBadge}>
             <Ionicons name="checkmark-circle" size={24} color="#fff" />
             <Text style={styles.purchasedText}>Purchased</Text>
@@ -233,39 +253,32 @@ export default function TourDetailScreen() {
         <View style={styles.priceContainer}>
           <View style={styles.priceSection}>
             <Text style={styles.priceText}>${tour.price.toFixed(2)}</Text>
-            {!showPurchased && (
+            {!isPurchased && (
               <Text style={styles.priceSubtext}>One-time purchase</Text>
             )}
           </View>
 
-          {checkingPurchase ? (
-            <View style={styles.loadingButton}>
-              <ActivityIndicator color="#5CC4C4" />
-              <Text style={styles.loadingText}>Checking...</Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={[
-                styles.purchaseButton,
-                showPurchased && styles.purchaseButtonPurchased,
-              ]}
-              onPress={handlePurchase}
-            >
-              <Text style={styles.purchaseButtonText}>
-                {showPurchased ? 'Start Tour' : 'Purchase Tour'}
-              </Text>
-              <Ionicons
-                name={showPurchased ? 'play' : 'card-outline'}
-                size={20}
-                color="#fff"
-                style={{ marginLeft: 8 }}
-              />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={[
+              styles.purchaseButton,
+              isPurchased && styles.purchaseButtonPurchased,
+            ]}
+            onPress={handlePurchase}
+          >
+            <Text style={styles.purchaseButtonText}>
+              {isPurchased ? 'Start Tour' : 'Purchase Tour'}
+            </Text>
+            <Ionicons
+              name={isPurchased ? 'play' : 'card-outline'}
+              size={20}
+              color="#fff"
+              style={{ marginLeft: 8 }}
+            />
+          </TouchableOpacity>
         </View>
 
         {/* Features List (for unpurchased tours) */}
-        {!showPurchased && (
+        {!isPurchased && (
           <View style={styles.featuresContainer}>
             <Text style={styles.featuresTitle}>What's Included:</Text>
             <View style={styles.featureItem}>
@@ -293,33 +306,72 @@ export default function TourDetailScreen() {
           </View>
         )}
 
-        {/* Download Button (if purchased) */}
-        {showPurchased && !tour.isDownloaded && (
-          <TouchableOpacity
-            style={[
-              styles.downloadButton,
-              isDownloading && styles.downloadButtonDisabled,
-            ]}
-            onPress={handleDownload}
-            disabled={isDownloading}
-          >
-            <Ionicons
-              name={
-                isDownloading ? 'download-outline' : 'cloud-download-outline'
-              }
-              size={20}
-              color="#5CC4C4"
-            />
-            <Text style={styles.downloadButtonText}>
-              {isDownloading ? 'Downloading...' : 'Download for Offline'}
-            </Text>
-          </TouchableOpacity>
-        )}
+        {/* Download Button/Status (if purchased) */}
+        {isPurchased && (
+          <View style={styles.downloadSection}>
+            {downloading && downloadingProgress && (
+              <View style={styles.downloadProgressContainer}>
+                <View style={styles.downloadProgressHeader}>
+                  <Text style={styles.downloadProgressTitle}>
+                    Downloading...{' '}
+                    {Math.round(downloadingProgress.progress * 100)}%
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.cancelDownloadButton}
+                    onPress={handleDownload}
+                  >
+                    <Ionicons name="close" size={16} color="#ff4444" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${downloadingProgress.progress * 100}%` },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.downloadProgressText}>
+                  {downloadingProgress.currentFile}
+                </Text>
+              </View>
+            )}
 
-        {tour.isDownloaded && (
-          <View style={styles.downloadedIndicator}>
-            <Ionicons name="cloud-done-outline" size={20} color="#4CAF50" />
-            <Text style={styles.downloadedText}>Available Offline</Text>
+            {!downloading && !isOffline && (
+              <TouchableOpacity
+                style={styles.downloadButton}
+                onPress={handleDownload}
+              >
+                <Ionicons
+                  name="cloud-download-outline"
+                  size={20}
+                  color="#5CC4C4"
+                />
+                <Text style={styles.downloadButtonText}>
+                  Download for Offline
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {!downloading && isOffline && (
+              <View style={styles.downloadedContainer}>
+                <View style={styles.downloadedIndicator}>
+                  <Ionicons
+                    name="cloud-done-outline"
+                    size={20}
+                    color="#4CAF50"
+                  />
+                  <Text style={styles.downloadedText}>Available Offline</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeOfflineButton}
+                  onPress={handleDownload}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#ff4444" />
+                  <Text style={styles.removeOfflineText}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
 
@@ -458,19 +510,6 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 2,
   },
-  loadingButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 25,
-  },
-  loadingText: {
-    color: '#666',
-    marginLeft: 8,
-    fontWeight: '600',
-  },
   purchaseButton: {
     backgroundColor: '#5CC4C4',
     flexDirection: 'row',
@@ -497,6 +536,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   featuresTitle: {
     fontSize: 16,
@@ -525,17 +569,66 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
-    marginBottom: 16,
-  },
-  downloadButtonDisabled: {
-    opacity: 0.6,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   downloadButtonText: {
     color: '#5CC4C4',
     fontWeight: '600',
     marginLeft: 8,
   },
+  downloadSection: {
+    marginBottom: 16,
+  },
+  downloadProgressContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  downloadProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  downloadProgressTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  cancelDownloadButton: {
+    padding: 4,
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 2,
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#5CC4C4',
+    borderRadius: 2,
+  },
+  downloadProgressText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  downloadedContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   downloadedIndicator: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -543,12 +636,23 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
-    marginBottom: 16,
+    marginRight: 12,
   },
   downloadedText: {
     color: '#4CAF50',
     fontWeight: '600',
     marginLeft: 8,
+  },
+  removeOfflineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  removeOfflineText: {
+    color: '#ff4444',
+    fontSize: 14,
+    marginLeft: 4,
   },
   sectionTitle: {
     fontSize: 22,
@@ -565,6 +669,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     alignItems: 'flex-start',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   stopNumber: {
     width: 32,

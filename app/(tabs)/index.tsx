@@ -1,8 +1,9 @@
-// app/(tabs)/index.tsx - Protected tours list screen
+// app/(tabs)/index.tsx - Updated Tours Screen with instant purchase status
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   Image,
   SafeAreaView,
@@ -13,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePurchases } from '../../contexts/PurchaseContext';
 import { getAllTours } from '../../data/tours';
 import { getImageAsset } from '../../utils/imageAssets';
 
@@ -21,6 +23,7 @@ const { width: screenWidth } = Dimensions.get('window');
 export default function ToursScreen() {
   const tours = getAllTours();
   const { user } = useAuth();
+  const { hasPurchased, isLoadingPurchases } = usePurchases();
 
   const handleTourPress = (tourId: string) => {
     router.push(`/tour/${tourId}`);
@@ -29,6 +32,21 @@ export default function ToursScreen() {
   const handlePlayTour = (tourId: string) => {
     router.push(`/tour/player/${tourId}`);
   };
+
+  const getCompletedToursCount = () => {
+    return tours.filter((tour) => hasPurchased(tour.id)).length;
+  };
+
+  if (isLoadingPurchases) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#5CC4C4" />
+          <Text style={styles.loadingText}>Loading your tours...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -47,83 +65,106 @@ export default function ToursScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Featured Tours</Text>
 
-          {tours.map((tour) => (
-            <TouchableOpacity
-              key={tour.id}
-              style={styles.tourCard}
-              onPress={() => handleTourPress(tour.id)}
-              activeOpacity={0.8}
-            >
-              {/* Tour Image */}
-              <View style={styles.imageContainer}>
-                <Image
-                  source={getImageAsset(tour.image)}
-                  style={styles.tourImage}
-                  resizeMode="cover"
-                />
-                <View style={styles.imageOverlay}>
-                  <View style={styles.priceTag}>
-                    <Text style={styles.priceText}>${tour.price}</Text>
-                  </View>
-                </View>
-              </View>
+          {tours.map((tour) => {
+            const isPurchased = hasPurchased(tour.id);
 
-              {/* Tour Info */}
-              <View style={styles.tourInfo}>
-                <Text style={styles.tourTitle}>{tour.title}</Text>
-                <Text style={styles.tourDescription} numberOfLines={2}>
-                  {tour.description}
-                </Text>
-
-                {/* Tour Stats */}
-                <View style={styles.tourStats}>
-                  <View style={styles.statItem}>
-                    <Ionicons name="time-outline" size={16} color="#666" />
-                    <Text style={styles.statText}>{tour.duration}</Text>
-                  </View>
-                  <View style={styles.statItem}>
-                    <Ionicons name="location-outline" size={16} color="#666" />
-                    <Text style={styles.statText}>{tour.distance}</Text>
-                  </View>
-                  <View style={styles.statItem}>
-                    <Ionicons name="headset-outline" size={16} color="#666" />
-                    <Text style={styles.statText}>
-                      {tour.stops.length} stops
-                    </Text>
+            return (
+              <TouchableOpacity
+                key={tour.id}
+                style={styles.tourCard}
+                onPress={() => handleTourPress(tour.id)}
+                activeOpacity={0.8}
+              >
+                {/* Tour Image */}
+                <View style={styles.imageContainer}>
+                  <Image
+                    source={getImageAsset(tour.image)}
+                    style={styles.tourImage}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.imageOverlay}>
+                    {isPurchased ? (
+                      <View style={styles.purchasedTag}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={16}
+                          color="#fff"
+                        />
+                        <Text style={styles.purchasedText}>Owned</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.priceTag}>
+                        <Text style={styles.priceText}>${tour.price}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
 
-                {/* Action Buttons */}
-                <View style={styles.actionButtons}>
-                  {tour.isPurchased ? (
+                {/* Tour Info */}
+                <View style={styles.tourInfo}>
+                  <Text style={styles.tourTitle}>{tour.title}</Text>
+                  <Text style={styles.tourDescription} numberOfLines={2}>
+                    {tour.description}
+                  </Text>
+
+                  {/* Tour Stats */}
+                  <View style={styles.tourStats}>
+                    <View style={styles.statItem}>
+                      <Ionicons name="time-outline" size={16} color="#666" />
+                      <Text style={styles.statText}>{tour.duration}</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <Ionicons
+                        name="location-outline"
+                        size={16}
+                        color="#666"
+                      />
+                      <Text style={styles.statText}>{tour.distance}</Text>
+                    </View>
+                    <View style={styles.statItem}>
+                      <Ionicons name="headset-outline" size={16} color="#666" />
+                      <Text style={styles.statText}>
+                        {tour.stops.length} stops
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Action Buttons */}
+                  <View style={styles.actionButtons}>
+                    {isPurchased ? (
+                      <TouchableOpacity
+                        style={styles.playButton}
+                        onPress={() => handlePlayTour(tour.id)}
+                      >
+                        <Ionicons name="play" size={20} color="#fff" />
+                        <Text style={styles.playButtonText}>Play Tour</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.purchaseButton}
+                        onPress={() => handleTourPress(tour.id)}
+                      >
+                        <Ionicons
+                          name="card-outline"
+                          size={20}
+                          color="#5CC4C4"
+                        />
+                        <Text style={styles.purchaseButtonText}>Purchase</Text>
+                      </TouchableOpacity>
+                    )}
+
                     <TouchableOpacity
-                      style={styles.playButton}
-                      onPress={() => handlePlayTour(tour.id)}
-                    >
-                      <Ionicons name="play" size={20} color="#fff" />
-                      <Text style={styles.playButtonText}>Play Tour</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.purchaseButton}
+                      style={styles.detailsButton}
                       onPress={() => handleTourPress(tour.id)}
                     >
-                      <Ionicons name="card-outline" size={20} color="#5CC4C4" />
-                      <Text style={styles.purchaseButtonText}>Purchase</Text>
+                      <Text style={styles.detailsButtonText}>View Details</Text>
+                      <Ionicons name="chevron-forward" size={16} color="#666" />
                     </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity
-                    style={styles.detailsButton}
-                    onPress={() => handleTourPress(tour.id)}
-                  >
-                    <Text style={styles.detailsButtonText}>View Details</Text>
-                    <Ionicons name="chevron-forward" size={16} color="#666" />
-                  </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-            </TouchableOpacity>
-          ))}
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Quick Stats */}
@@ -133,8 +174,8 @@ export default function ToursScreen() {
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <Ionicons name="headset" size={32} color="#5CC4C4" />
-              <Text style={styles.statNumber}>0</Text>
-              <Text style={styles.statLabel}>Tours Completed</Text>
+              <Text style={styles.statNumber}>{getCompletedToursCount()}</Text>
+              <Text style={styles.statLabel}>Tours Owned</Text>
             </View>
 
             <View style={styles.statCard}>
@@ -162,6 +203,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
   welcomeSection: {
     padding: 20,
@@ -222,6 +275,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  purchasedTag: {
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  purchasedText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
   tourInfo: {
     padding: 16,
   },
@@ -258,7 +325,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   playButton: {
-    backgroundColor: '#5CC4C4',
+    backgroundColor: '#4CAF50',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,

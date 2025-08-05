@@ -1,5 +1,6 @@
-// app/(tabs)/profile.tsx - User profile screen
+// app/(tabs)/profile.tsx - Updated User profile screen with offline downloads
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import React from 'react';
 import {
   Alert,
@@ -11,9 +12,13 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOffline } from '../../contexts/OfflineContext';
+import { usePurchases } from '../../contexts/PurchaseContext';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
+  const { purchasedTours } = usePurchases();
+  const { offlineTours, totalStorageUsed, formatStorageSize } = useOffline();
 
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -32,6 +37,10 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const handleOfflineDownloads = () => {
+    router.push('/offline-downloads');
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
@@ -45,9 +54,11 @@ export default function ProfileScreen() {
     {
       icon: 'download-outline',
       title: 'Downloaded Tours',
-      subtitle: 'Manage your offline content',
-      onPress: () =>
-        Alert.alert('Coming Soon', 'Downloaded tours feature coming soon!'),
+      subtitle: `${offlineTours.length} tours • ${formatStorageSize(
+        totalStorageUsed
+      )}`,
+      onPress: handleOfflineDownloads,
+      badge: offlineTours.length > 0 ? offlineTours.length : undefined,
     },
     {
       icon: 'card-outline',
@@ -116,20 +127,22 @@ export default function ProfileScreen() {
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Ionicons name="headset" size={24} color="#5CC4C4" />
-            <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Tours Completed</Text>
+            <Text style={styles.statNumber}>{purchasedTours.length}</Text>
+            <Text style={styles.statLabel}>Tours Owned</Text>
           </View>
 
           <View style={styles.statCard}>
             <Ionicons name="download" size={24} color="#5CC4C4" />
-            <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Downloads</Text>
+            <Text style={styles.statNumber}>{offlineTours.length}</Text>
+            <Text style={styles.statLabel}>Downloaded</Text>
           </View>
 
           <View style={styles.statCard}>
-            <Ionicons name="star" size={24} color="#5CC4C4" />
-            <Text style={styles.statNumber}>0</Text>
-            <Text style={styles.statLabel}>Reviews</Text>
+            <Ionicons name="phone-portrait" size={24} color="#5CC4C4" />
+            <Text style={styles.statNumber}>
+              {formatStorageSize(totalStorageUsed)}
+            </Text>
+            <Text style={styles.statLabel}>Storage Used</Text>
           </View>
         </View>
 
@@ -146,6 +159,11 @@ export default function ProfileScreen() {
             >
               <View style={styles.menuIconContainer}>
                 <Ionicons name={item.icon as any} size={24} color="#333" />
+                {item.badge && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{item.badge}</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.menuContent}>
                 <Text style={styles.menuTitle}>{item.title}</Text>
@@ -155,6 +173,25 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* Storage Summary (if offline content exists) */}
+        {offlineTours.length > 0 && (
+          <View style={styles.storageInfoContainer}>
+            <Text style={styles.storageInfoTitle}>Offline Storage</Text>
+            <Text style={styles.storageInfoText}>
+              You have {offlineTours.length} tour
+              {offlineTours.length !== 1 ? 's' : ''} downloaded, using{' '}
+              {formatStorageSize(totalStorageUsed)} of storage space.
+            </Text>
+            <TouchableOpacity
+              style={styles.manageStorageButton}
+              onPress={handleOfflineDownloads}
+            >
+              <Text style={styles.manageStorageText}>Manage Downloads</Text>
+              <Ionicons name="chevron-forward" size={16} color="#5CC4C4" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Sign Out Button */}
         <View style={styles.signOutContainer}>
@@ -251,14 +288,14 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   statNumber: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
     marginTop: 8,
     marginBottom: 4,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
     textAlign: 'center',
   },
@@ -284,6 +321,24 @@ const styles = StyleSheet.create({
   },
   menuIconContainer: {
     marginRight: 16,
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#5CC4C4',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   menuContent: {
     flex: 1,
@@ -297,6 +352,41 @@ const styles = StyleSheet.create({
   menuSubtitle: {
     fontSize: 14,
     color: '#666',
+  },
+  storageInfoContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  storageInfoTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  storageInfoText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  manageStorageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+  },
+  manageStorageText: {
+    fontSize: 14,
+    color: '#5CC4C4',
+    fontWeight: '600',
   },
   signOutContainer: {
     paddingHorizontal: 16,
