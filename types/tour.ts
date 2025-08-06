@@ -8,9 +8,9 @@ export interface Coordinates {
 export interface TourStop {
   id: string;
   title: string;
-  type: 'info' | 'lobster_stop' | 'bonus_stop';
+  type: 'info_Stop' | 'lobster_stop' | 'bonus_stop';
   coordinates: Coordinates;
-  triggerCoordinates?: Coordinates; // For audio trigger points
+  triggerCoordinates?: Coordinates;
   audio: string;
   transcript: string;
   image: string;

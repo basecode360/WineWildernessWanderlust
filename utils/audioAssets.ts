@@ -7,7 +7,7 @@ export const audioAssets = {
   'Lobster Roll Stop 1_ Bar Harbor Lobster Pound.wav': require('@/assets/tour1/audios/Lobster Roll Stop 1_ Bar Harbor Lobster Pound.wav'),
   'Info Stop 2_ Blueberries in Maine.wav': require('@/assets/tour1/audios/Info Stop 2_ Blueberries in Maine.wav'),
   'Info Stop 3_ The Lobster Industry.wav': require('@/assets/tour1/audios/Info Stop 3_ The Lobster Industry.wav'),
-  'Lobster Roll Stop 2_ Abels Lobster.wav': require(`@/assets/tour1/audios/Lobster Roll Stop 2_ Abels Lobster.wav`),
+  'Lobster Roll Stop 2_ Abels Lobster.wav': require('@/assets/tour1/audios/Lobster Roll Stop 2_ Abels Lobster.wav'),
   'Info Stop 4_ Creation of Acadia National Park.wav': require('@/assets/tour1/audios/Info Stop 4_ Creation of Acadia National Park.wav'),
   'Info Stop 5_ Atlantic Brewing Company.wav': require('@/assets/tour1/audios/Info Stop 5_ Atlantic Brewing Company.wav'),
   'Lobster Roll Stop 3_ The Travelin Lobster.wav': require('@/assets/tour1/audios/Lobster Roll Stop 3_ The Travelin_ Lobster.wav'),
@@ -20,24 +20,78 @@ export const audioAssets = {
 } as const;
 
 export const getAudioAsset = (fileName: string) => {
-  return audioAssets[fileName as keyof typeof audioAssets];
+  console.log('🎵 Looking for audio file:', fileName);
+
+  // Direct lookup first
+  const asset = audioAssets[fileName as keyof typeof audioAssets];
+  if (asset) {
+    console.log('✅ Found audio asset:', fileName);
+    return asset;
+  }
+
+  // Try alternatives if direct lookup fails
+  console.log('⚠️ Direct lookup failed, trying alternatives for:', fileName);
+
+  const alternatives = Object.keys(audioAssets).filter(key => {
+    // Try partial matching
+    return key.toLowerCase().includes(fileName.toLowerCase()) ||
+      fileName.toLowerCase().includes(key.toLowerCase());
+  });
+
+  if (alternatives.length > 0) {
+    const foundKey = alternatives[0];
+    console.log('✅ Found alternative audio asset:', foundKey);
+    return audioAssets[foundKey as keyof typeof audioAssets];
+  }
+
+  console.error('❌ Audio file not found in mapping:', fileName);
+  console.error('Available audio files:', Object.keys(audioAssets));
+  return null;
 };
 
-// Alternative approach using expo-asset
-import { Asset } from 'expo-asset';
+// Simple direct approach - no Asset.downloadAsync
+export const getAudioSource = (fileName: string) => {
+  const asset = getAudioAsset(fileName);
+  if (asset) {
+    return asset;
+  }
+  return null;
+};
 
-export const loadAudioAsset = async (fileName: string) => {
+// Debug function to list all available audio files
+export const debugAudioAssets = () => {
+  console.log('=== AVAILABLE AUDIO ASSETS ===');
+  Object.keys(audioAssets).forEach((key, index) => {
+    console.log(`${index + 1}. "${key}"`);
+  });
+  console.log('===============================');
+};
+
+// Type-safe audio keys
+export type AudioAssetKey = keyof typeof audioAssets;
+
+// Function to validate if an audio file exists
+export const hasAudioAsset = (fileName: string): fileName is AudioAssetKey => {
+  return fileName in audioAssets;
+};
+
+// Get all available audio keys
+export const getAllAudioKeys = (): string[] => {
+  return Object.keys(audioAssets);
+};
+
+// Alternative loading method without expo-asset dependency
+export const loadAudioAssetSimple = (fileName: string) => {
   try {
-    const asset = audioAssets[fileName as keyof typeof audioAssets];
+    const asset = getAudioAsset(fileName);
     if (!asset) {
       throw new Error(`Audio file not found: ${fileName}`);
     }
 
-    // Load the asset
-    const [loadedAsset] = await Asset.loadAsync(asset);
-    return loadedAsset.localUri || loadedAsset.uri;
+    // Return the require() result directly - no Asset.loadAsync needed
+    return asset;
   } catch (error) {
-    console.error('Error loading audio asset:', error);
+    console.error('Error getting audio asset:', error);
     return null;
   }
 };

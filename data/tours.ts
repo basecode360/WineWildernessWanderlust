@@ -15,8 +15,8 @@ export const sampleTourData: Tour = {
   stops: [
     {
       id: 'start_tour',
-      title: 'Start of Tour - Bar Harbor',
-      type: 'info',
+      title: 'Start of Tour',
+      type: 'info_Stop',
       coordinates: { lat: 44.3875617, lng: -68.2042989 },
       audio: 'Intro.wav',
       transcript:
@@ -28,7 +28,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_1',
       title: 'Bar Island – A Walk Across the Ocean Floor',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.3938257, lng: -68.2214357 },
       audio: 'Info Stop 1_ Bar Island – A Walk Across the Ocean Floor.wav',
       transcript:
@@ -36,17 +36,7 @@ export const sampleTourData: Tour = {
       image: 'bar-island-sandbar.jpg',
       isPlayed: false,
     },
-    {
-      id: 'lobster_stop_1_audio',
-      title: 'Bar Harbor Lobster Pound (Audio Start)',
-      type: 'info',
-      coordinates: { lat: 44.4297052, lng: -68.2565495 },
-      audio: 'Lobster Roll Stop 1_ Bar Harbor Lobster Pound.wav',
-      transcript:
-        "Get excited, your first lobster roll stop is coming up, and it's one of my favorites, Bar Harbor Lobster Pound. This delicious lobster shack opened its doors in 2023 and already feels like it's been part of the local scene forever. You will see the steam rising from the lobster pots before you even get out of the car. It doesn't get more fresh than that. This place has such a laid-back vibe. You order at the counter, then head outside to one of the picnic tables. It's casual and welcoming---making it a great place to start your lobster roll journey. I have to admit that this is one of my favorite lobster rolls in Maine. I always go for their House Roll. It's fresh lobster tossed in a garlicky aioli, served with crispy homemade chips. If you're up for something different, try the lobster nachos. Yes, you heard that right---lobster nachos. They're loaded with mango salsa and cilantro, and they always hit the spot. And if you're craving something non-lobster, their fried haddock sandwich is actually amazing. Light, crispy, and honestly, underrated. Don't forget to pair your meal with some local Maine blueberry drinks. They serve blueberry wine from Bar Harbor Cellars Winery, which is five minutes up the road. Or, order an Old Soaker Blueberry Soda from Atlantic Brewing Company---another great local favorite. This is the kind of place that makes you want to stay a while. So, take your time, enjoy the food, and settle into the pace of coastal Maine. You've got more lobster ahead, but this is a pretty great way to begin.",
-      image: 'bar-harbor-lobster-pound-roll.jpg',
-      isPlayed: false,
-    },
+   
     {
       id: 'bar_harbor_lobster_pound',
       title: 'Bar Harbor Lobster Pound',
@@ -64,7 +54,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_2',
       title: 'Blueberries in Maine',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.413486, lng: -68.2957878 },
       audio: 'Info Stop 2_ Blueberries in Maine.wav',
       transcript:
@@ -75,7 +65,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_3',
       title: 'The Lobster Industry',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.3931537, lng: -68.2935811 },
       audio: 'Info Stop 3_ The Lobster Industry.wav',
       transcript:
@@ -83,17 +73,7 @@ export const sampleTourData: Tour = {
       image: 'fresh-lobster-dinner.jpg',
       isPlayed: false,
     },
-    {
-      id: 'lobster_stop_2_audio',
-      title: "Abel's Lobster (Audio Start)",
-      type: 'info',
-      coordinates: { lat: 44.3742348, lng: -68.2962111 },
-      audio: 'Lobster Roll Stop 2_ Abels Lobster.wav',
-      transcript:
-        "Now we're heading to Abel's Lobster, located right on Somes Sound. This spot is pure coastal Maine. You've got picnic tables overlooking the water, salty air, and relaxing energy that makes you want to hang out for a while. Abel's has been around since the 1930s and has been a part of the community for decades. They work with local fishermen and source almost everything right here in Maine, which is something I really appreciate. Their lobster roll is one of my favorites near Acadia National Park. Because they keep things classic but never boring. Their lobster roll is packed with fresh lobster meat, just a touch of mayo and chives, all tucked into a warm, buttery brioche bun. It's exactly what you hope a lobster roll will be. You have to add a side of their homemade cornbread, which is served with whipped maple butter. I also never skip on the corn on the cob and their tangy and tasty dilly beans. While you wait for your food, walk down to the small outdoor building where they prep all the lobster. It's always fun to see where the magic happens. Once you get your meal, enjoy the view and snap some photos. The view of the boats and Somes Sound is beautiful---especially in the late afternoon light. Spend some time here and really take it all in. I'll be right here when you're ready to get back on the road.",
-      image: 'abels-lobster-somes-sound.jpg',
-      isPlayed: false,
-    },
+    
     {
       id: 'abels_lobster',
       title: "Abel's Lobster",
@@ -111,7 +91,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_4',
       title: 'Creation of Acadia National Park',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.3692572, lng: -68.3309266 },
       audio: 'Info Stop 4_ Creation of Acadia National Park.wav',
       transcript:
@@ -122,7 +102,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_5',
       title: 'Atlantic Brewing Company',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.397285, lng: -68.3343154 },
       audio: 'Info Stop 5_ Atlantic Brewing Company.wav',
       transcript:
@@ -130,17 +110,6 @@ export const sampleTourData: Tour = {
       image: 'atlantic-brewing-blueberry-ale.jpg',
       isPlayed: false,
       address: '15 Knox Rd, Bar Harbor, ME 04609',
-    },
-    {
-      id: 'lobster_stop_3_audio',
-      title: "The Travelin' Lobster (Audio Start)",
-      type: 'info',
-      coordinates: { lat: 44.4065767, lng: -68.3475368 },
-      audio: 'Lobster Roll Stop 3_ The Travelin Lobster.wav',
-      transcript:
-        "Next up is The Travelin' Lobster---a casual roadside shack that's packed in the summer and loved by both locals and travelers. It's family-run, with roots going back to the 1970s, and the current location has been serving up fresh, boat-to-bun lobster since 2016. They only serve what's caught that morning, so the lobster here is incredibly fresh. My go-to is the Hot Roll, filled with buttery, sautéed lobster meat. But there are other options too---like the Slaw Roll, chilled with coleslaw and Thousand Island dressing. You can also grab a sampler trio to try them all, which is a solid move if you're indecisive like me. Their menu also includes lobster bisque, mac and cheese, crab rolls, and even lobster grilled cheese. Take your time here, enjoy the food, and I'll be here when you're ready to hit the road again.",
-      image: 'travelin-lobster-roll.jpg',
-      isPlayed: false,
     },
     {
       id: 'travelin_lobster',
@@ -159,7 +128,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_6',
       title: 'Life on Mount Desert Island',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.4187244, lng: -68.361307 },
       audio: 'Info Stop 6_ Life on Mount Desert Island.wav',
       transcript:
@@ -170,7 +139,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_7',
       title: 'Salisbury Cove – The Quiet Side of the Island',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.4352004, lng: -68.3059755 },
       audio: 'Info Stop 7_ Salisbury Cove.wav',
       transcript:
@@ -181,7 +150,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_8',
       title: "Pirate's Cove Mini Golf",
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.4290384, lng: -68.2824463 },
       audio: 'Info Stop 8_ Pirates Cove Mini Golf.wav',
       transcript:
@@ -192,7 +161,7 @@ export const sampleTourData: Tour = {
     {
       id: 'info_stop_9',
       title: 'Drive Back to Bar Harbor',
-      type: 'info',
+      type: 'info_Stop',
       coordinates: { lat: 44.4112874, lng: -68.2494744 },
       audio: 'Info Stop 9_ Drive Back to Bar Harbor.wav',
       transcript:
@@ -202,28 +171,14 @@ export const sampleTourData: Tour = {
     },
     {
       id: 'lobster_ice_cream_audio',
-      title: 'Lobster Ice Cream Audio Start',
-      type: 'info',
+      title: 'Lobster Ice Cream in Bar Harbor',
+      type: 'bonus_stop',
       coordinates: { lat: 44.3893404, lng: -68.2156241 },
       audio: 'Bonus Stop_ Lobster Ice Cream.wav',
       transcript:
         "Okay, before we officially wrap things up, I've got one last stop for you---and it's definitely the most unexpected treat of the day. If you're feeling brave, head to Ben & Bill's Chocolate Emporium in downtown Bar Harbor and try their lobster ice cream. Yep, you heard that right. It's real lobster---folded into a rich vanilla base. Sweet, buttery, and totally unforgettable. If lobster in your dessert isn't your thing, don't worry. They've got dozens of other flavors to choose from. But if you're up for it, trying the lobster ice cream makes for a great story---and maybe even a new favorite treat. Go ahead and grab your scoop, and I'll be here to wrap things up when you're done.",
       image: 'ben-bills-lobster-ice-cream.jpg',
       isPlayed: false,
-    },
-    {
-      id: 'ben_bills_bonus',
-      title: "Ben & Bill's Chocolate Emporium - Lobster Ice Cream",
-      type: 'bonus_stop',
-      coordinates: { lat: 44.3897162, lng: -68.2045227 },
-      triggerCoordinates: { lat: 44.3893404, lng: -68.2156241 },
-      audio: 'Outro.wav',
-      transcript:
-        "Alright, let's be honest---how was the lobster ice cream? Weirdly good? Just weird? Either way, you can officially say you've had one of the most iconic (and unexpected) treats in Maine. And just like that, you've reached the end of your Acadia Lobster Roll Tour! I hope you found a few new favorites---and maybe even surprised yourself by trying something totally unexpected. For more adventures, foodie finds, and outdoor escapes, head over to WineWildernessWanderlust.com. And if you're planning to explore more of Acadia National Park, be sure to check out my other self-guided tours here on Wander Guide. As a Maine local, I'm always out looking for the most fun, scenic, and delicious things this state has to offer---and I'd love to share it all with you. Thanks for riding along, and until next time---happy eating!",
-      image: 'ben-bills-lobster-ice-cream.jpg',
-      isPlayed: false,
-      address: '66 Main St, Bar Harbor, ME 04609',
-      tips: "Try the famous lobster ice cream - it's surprisingly delicious!",
     },
   ],
 };

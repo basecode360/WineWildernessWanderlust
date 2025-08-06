@@ -10,6 +10,7 @@ export const testAudioPlayback = async () => {
     const status = await sound.loadAsync({ uri: testUrl });
 
     if (status.isLoaded) {
+      
       await sound.playAsync();
       console.log('✅ Audio test successful!');
       return sound;
