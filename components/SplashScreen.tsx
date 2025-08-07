@@ -1,7 +1,13 @@
-// components/SplashScreen.tsx - Animated splash screen
-import { Ionicons } from '@expo/vector-icons';
+// components/SplashScreen.tsx - Enhanced with visual integration
 import React, { useEffect, useRef } from 'react';
-import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
+import {
+  Animated,
+  Dimensions,
+  Image,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -16,6 +22,8 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
   const titleTranslateY = useRef(new Animated.Value(30)).current;
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
   const backgroundOpacity = useRef(new Animated.Value(0)).current;
+  const circleScale = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const animationSequence = () => {
@@ -26,20 +34,46 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
         useNativeDriver: true,
       }).start();
 
+      // Circle background animation
+      Animated.spring(circleScale, {
+        toValue: 1,
+        tension: 40,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+
+      // Glow effect
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowOpacity, {
+            toValue: 0.8,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(glowOpacity, {
+            toValue: 0.3,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+
       // Logo animation
-      Animated.parallel([
-        Animated.spring(logoScale, {
-          toValue: 1,
-          tension: 50,
-          friction: 7,
-          useNativeDriver: true,
-        }),
-        Animated.timing(logoOpacity, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.spring(logoScale, {
+            toValue: 1,
+            tension: 50,
+            friction: 7,
+            useNativeDriver: true,
+          }),
+          Animated.timing(logoOpacity, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, 200);
 
       // Title animation (delayed)
       setTimeout(() => {
@@ -55,7 +89,7 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
             useNativeDriver: true,
           }),
         ]).start();
-      }, 400);
+      }, 600);
 
       // Subtitle animation (more delayed)
       setTimeout(() => {
@@ -64,14 +98,14 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
           duration: 600,
           useNativeDriver: true,
         }).start();
-      }, 800);
+      }, 1000);
 
       // Finish after total animation time
       setTimeout(() => {
         if (onFinished) {
           onFinished();
         }
-      }, 2500);
+      }, 3000);
     };
 
     animationSequence();
@@ -89,27 +123,75 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
         ]}
       />
 
+      {/* Animated gradient overlay */}
+      <Animated.View
+        style={[
+          styles.gradientOverlay,
+          {
+            opacity: backgroundOpacity,
+          },
+        ]}
+      />
+
       {/* Content Container */}
       <View style={styles.content}>
-        {/* Animated Logo */}
+        {/* Logo Container with Enhanced Visuals */}
         <Animated.View
           style={[
             styles.logoContainer,
             {
-              opacity: logoOpacity,
-              transform: [{ scale: logoScale }],
+              transform: [{ scale: circleScale }],
             },
           ]}
         >
-          <View style={styles.logoBackground}>
-            <Ionicons name="wine" size={64} color="#fff" />
+          {/* Outer glow ring */}
+          <Animated.View
+            style={[
+              styles.glowRing,
+              {
+                opacity: glowOpacity,
+                transform: [{ scale: circleScale }],
+              },
+            ]}
+          />
+
+          {/* Main circle background */}
+          <View style={styles.logoCircle}>
+            {/* Inner gradient circle */}
+            <View style={styles.innerCircle} />
+
+            {/* Animated Logo */}
+            <Animated.View
+              style={[
+                styles.logoImageContainer,
+                {
+                  opacity: logoOpacity,
+                  transform: [{ scale: logoScale }],
+                },
+              ]}
+            >
+              <Image
+                source={require('../assets/images/wander-guide-logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+                onError={(error) => {
+                  console.log('Image loading error:', error.nativeEvent.error);
+                }}
+                onLoad={() => {
+                  console.log('Image loaded successfully');
+                }}
+              />
+            </Animated.View>
           </View>
 
-          {/* Wine glass animation dots */}
-          <View style={styles.bubbles}>
-            <View style={[styles.bubble, styles.bubble1]} />
-            <View style={[styles.bubble, styles.bubble2]} />
-            <View style={[styles.bubble, styles.bubble3]} />
+          {/* Floating particles around logo */}
+          <View style={styles.particles}>
+            <View style={[styles.particle, styles.particle1]} />
+            <View style={[styles.particle, styles.particle2]} />
+            <View style={[styles.particle, styles.particle3]} />
+            <View style={[styles.particle, styles.particle4]} />
+            <View style={[styles.particle, styles.particle5]} />
+            <View style={[styles.particle, styles.particle6]} />
           </View>
         </Animated.View>
 
@@ -123,8 +205,8 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
             },
           ]}
         >
-          <Text style={styles.mainTitle}>Wine Wilderness</Text>
-          <Text style={styles.subtitle}>Wanderlust</Text>
+          <Text style={styles.mainTitle}>Wander Guide</Text>
+          <Text style={styles.subtitle}>Wine Wilderness</Text>
         </Animated.View>
 
         {/* Animated Tagline */}
@@ -171,10 +253,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor:
-      'linear-gradient(135deg, #5CC4C4 0%, #4A90A4 50%, #2C3E50 100%)',
-    // Fallback for React Native
-    backgroundColor: '#5CC4C4',
+    backgroundColor: '#1ABCD8',
+  },
+  gradientOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    // You can add a subtle gradient here if needed
   },
   content: {
     flex: 1,
@@ -187,53 +275,96 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     position: 'relative',
   },
-  logoBackground: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  glowRing: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    shadowColor: '#fff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  logoCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: 20, // Rounded square to match logo shape
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
-    elevation: 10,
+    elevation: 15,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
   },
-  bubbles: {
+  innerCircle: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    width: 120,
+    height: 120,
+    borderRadius: 0,
+    backgroundColor: 'rgba(26, 188, 216, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(26, 188, 216, 0.3)',
   },
-  bubble: {
+  logoImageContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoImage: {
+    width: 110,
+    height: 110,
+    // Logo now fills the rounded square background nicely
+  },
+  particles: {
     position: 'absolute',
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    width: 200,
+    height: 200,
+  },
+  particle: {
+    position: 'absolute',
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
     borderRadius: 50,
   },
-  bubble1: {
-    width: 8,
-    height: 8,
-    top: 20,
-    right: 20,
-    animationDelay: '0s',
-  },
-  bubble2: {
+  particle1: {
     width: 6,
     height: 6,
-    top: 40,
+    top: 30,
     right: 40,
-    animationDelay: '0.5s',
   },
-  bubble3: {
+  particle2: {
     width: 4,
     height: 4,
     top: 60,
-    right: 15,
-    animationDelay: '1s',
+    right: 20,
+  },
+  particle3: {
+    width: 8,
+    height: 8,
+    bottom: 50,
+    left: 30,
+  },
+  particle4: {
+    width: 5,
+    height: 5,
+    bottom: 80,
+    left: 60,
+  },
+  particle5: {
+    width: 3,
+    height: 3,
+    top: 80,
+    left: 20,
+  },
+  particle6: {
+    width: 7,
+    height: 7,
+    bottom: 30,
+    right: 60,
   },
   titleContainer: {
     alignItems: 'center',
@@ -245,9 +376,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     textAlign: 'center',
     letterSpacing: 1,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
     textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    textShadowRadius: 6,
   },
   subtitle: {
     fontSize: 24,
@@ -257,6 +388,9 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginTop: 4,
     fontStyle: 'italic',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   taglineContainer: {
     alignItems: 'center',
@@ -268,6 +402,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 1,
     marginBottom: 30,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   loadingIndicator: {
     flexDirection: 'row',
@@ -298,5 +435,8 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     letterSpacing: 1,
     textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });

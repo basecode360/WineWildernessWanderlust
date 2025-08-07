@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { useOffline } from '../../contexts/OfflineContext';
 import { usePurchases } from '../../contexts/PurchaseContext';
 import { getAllTours } from '../../data/tours';
 import { getImageAsset } from '../../utils/imageAssets';
@@ -24,6 +25,7 @@ export default function ToursScreen() {
   const tours = getAllTours();
   const { user } = useAuth();
   const { hasPurchased, isLoadingPurchases } = usePurchases();
+  const { offlineTours, totalStorageUsed, formatStorageSize } = useOffline();
 
   const handleTourPress = (tourId: string) => {
     router.push(`/tour/${tourId}`);
@@ -179,9 +181,9 @@ export default function ToursScreen() {
             </View>
 
             <View style={styles.statCard}>
-              <Ionicons name="download" size={32} color="#5CC4C4" />
-              <Text style={styles.statNumber}>0</Text>
-              <Text style={styles.statLabel}>Downloads</Text>
+              <Ionicons name="download" size={24} color="#5CC4C4" />
+              <Text style={styles.statNumber}>{offlineTours.length}</Text>
+              <Text style={styles.statLabel}>Downloaded</Text>
             </View>
 
             <View style={styles.statCard}>

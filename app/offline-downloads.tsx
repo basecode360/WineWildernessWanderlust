@@ -12,13 +12,18 @@ import {
   Text,
   TouchableOpacity,
   View,
+  StatusBar,
 } from 'react-native';
 import { useOffline } from '../contexts/OfflineContext';
 import { OfflineContent } from '../services/OfflineService';
 import { getImageAsset } from '../utils/imageAssets';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 
 export default function OfflineDownloadsScreen() {
   const [refreshing, setRefreshing] = useState(false);
+
+  const insets = useSafeAreaInsets();
 
   const {
     offlineTours,
@@ -203,70 +208,73 @@ export default function OfflineDownloadsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Offline Downloads</Text>
-        <View style={styles.headerRight} />
-      </View>
-
-      {/* Storage Summary */}
-      <View style={styles.storageContainer}>
-        <View style={styles.storageInfo}>
-          <View style={styles.storageItem}>
-            <Ionicons name="download" size={24} color="#5CC4C4" />
-            <View style={styles.storageText}>
-              <Text style={styles.storageNumber}>{offlineTours.length}</Text>
-              <Text style={styles.storageLabel}>Tours</Text>
-            </View>
-          </View>
-
-          <View style={styles.storageItem}>
-            <Ionicons name="phone-portrait" size={24} color="#5CC4C4" />
-            <View style={styles.storageText}>
-              <Text style={styles.storageNumber}>
-                {formatStorageSize(totalStorageUsed)}
-              </Text>
-              <Text style={styles.storageLabel}>Used</Text>
-            </View>
-          </View>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Offline Downloads</Text>
+          <View style={styles.headerRight} />
         </View>
 
-        {offlineTours.length > 0 && (
-          <TouchableOpacity
-            style={styles.clearAllButton}
-            onPress={handleClearAll}
-          >
-            <Ionicons name="trash-outline" size={16} color="#ff4444" />
-            <Text style={styles.clearAllText}>Clear All</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+        {/* Storage Summary */}
+        <View style={styles.storageContainer}>
+          <View style={styles.storageInfo}>
+            <View style={styles.storageItem}>
+              <Ionicons name="download" size={24} color="#5CC4C4" />
+              <View style={styles.storageText}>
+                <Text style={styles.storageNumber}>{offlineTours.length}</Text>
+                <Text style={styles.storageLabel}>Tours</Text>
+              </View>
+            </View>
 
-      {/* Tours List */}
-      <FlatList
-        data={offlineTours}
-        renderItem={renderOfflineTour}
-        keyExtractor={(item) => item.tourId}
-        contentContainerStyle={styles.listContainer}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={['#5CC4C4']}
-            tintColor="#5CC4C4"
-          />
-        }
-        ListEmptyComponent={!isLoadingOffline ? renderEmptyState : null}
-      />
-    </SafeAreaView>
+            <View style={styles.storageItem}>
+              <Ionicons name="phone-portrait" size={24} color="#5CC4C4" />
+              <View style={styles.storageText}>
+                <Text style={styles.storageNumber}>
+                  {formatStorageSize(totalStorageUsed)}
+                </Text>
+                <Text style={styles.storageLabel}>Used</Text>
+              </View>
+            </View>
+          </View>
+
+          {offlineTours.length > 0 && (
+            <TouchableOpacity
+              style={styles.clearAllButton}
+              onPress={handleClearAll}
+            >
+              <Ionicons name="trash-outline" size={16} color="#ff4444" />
+              <Text style={styles.clearAllText}>Clear All</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Tours List */}
+        <FlatList
+          data={offlineTours}
+          renderItem={renderOfflineTour}
+          keyExtractor={(item) => item.tourId}
+          contentContainerStyle={styles.listContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#5CC4C4']}
+              tintColor="#5CC4C4"
+            />
+          }
+          ListEmptyComponent={!isLoadingOffline ? renderEmptyState : null}
+        />
+      </SafeAreaView>
+    </View>
   );
 }
 
