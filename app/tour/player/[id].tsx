@@ -84,7 +84,6 @@ export default function TourPlayerScreen() {
     if (tour) {
       const isOffline = isTourOffline(tour.id);
       setIsOfflineMode(isOffline);
-      console.log('📱 Tour offline mode:', isOffline);
     }
   };
 
@@ -156,7 +155,6 @@ export default function TourPlayerScreen() {
   const stopCurrentAudio = async () => {
     try {
       if (audioRef.current) {
-        console.log('🛑 Stopping current audio');
         await audioRef.current.unloadAsync();
         audioRef.current = null;
       }
@@ -183,7 +181,6 @@ export default function TourPlayerScreen() {
         }));
         
         if (status.didJustFinish) {
-          console.log('🎵 Audio finished naturally');
           // Reset to play icon when audio finishes
           setAudioState(prev => ({ 
             ...prev, 
@@ -196,9 +193,7 @@ export default function TourPlayerScreen() {
             try {
               if (audioRef.current) {
                 await audioRef.current.unloadAsync();
-                audioRef.current = null;
-                console.log('🎵 Sound object cleaned up after finish');
-              }
+                audioRef.current = null;              }
             } catch (error) {
               console.error('Error cleaning up sound after finish:', error);
             }
@@ -210,9 +205,7 @@ export default function TourPlayerScreen() {
 
   const triggerAudioForStop = async (stop: TourStop, index: number) => {
     try {
-      console.log('🎵 Attempting to play audio for stop:', stop.title); 
-      console.log('📱 Offline mode:', isOfflineMode);
-      console.log('🎵 Audio file name:', stop.audio);
+    
 
       // Initialize audio mode first
       await Audio.setAudioModeAsync({
@@ -232,16 +225,13 @@ export default function TourPlayerScreen() {
       let audioSource;
 
       if (isOfflineMode && tour) {
-        console.log('🔍 Looking for offline audio...');
         
         // Try to get offline audio path
         const offlineAudioPath = await getOfflineAudioPath(tour.id, stop.id);
-        console.log('🎵 Offline audio path result:', offlineAudioPath);
 
         if (offlineAudioPath && offlineAudioPath !== 'BUNDLED_AUDIO') {
           // Check if the file actually exists and is accessible
           try {
-            console.log('✅ Using downloaded audio file:', offlineAudioPath);
             
             // Create new Audio.Sound and load with file URI
             const { sound } = await Audio.Sound.createAsync(
@@ -252,26 +242,21 @@ export default function TourPlayerScreen() {
             // Test if the sound loaded successfully
             const status = await sound.getStatusAsync();
             if (status.isLoaded) {
-              console.log('✅ Downloaded audio loaded successfully');
               audioRef.current = sound;
               setupAudioPlaybackListener(sound, stop.id);
               audioSource = 'DOWNLOADED_FILE'; // Flag for tracking
             } else {
-              console.log('❌ Downloaded audio failed to load, trying bundled');
               await sound.unloadAsync();
               audioSource = getAudioAsset(stop.audio);
             }
           } catch (downloadError) {
-            console.log('❌ Error with downloaded file, falling back to bundled:', downloadError.message);
             audioSource = getAudioAsset(stop.audio);
           }
         } else if (offlineAudioPath === 'BUNDLED_AUDIO') {
           // Use bundled audio asset
-          console.log('📦 Using bundled audio asset for offline');
           audioSource = getAudioAsset(stop.audio);
           
           if (!audioSource) {
-            console.log('⚠️ No bundled audio asset found, trying alternatives');
             // Try with different audio file extensions if needed
             const audioAlternatives = [
               stop.audio,
@@ -282,31 +267,26 @@ export default function TourPlayerScreen() {
             for (const altAudio of audioAlternatives) {
               const altSource = getAudioAsset(altAudio);
               if (altSource) {
-                console.log('✅ Found alternative audio asset:', altAudio);
                 audioSource = altSource;
                 break;
               }
             }
           }
         } else {
-          console.log('❌ No offline audio available, falling back to bundled');
           audioSource = getAudioAsset(stop.audio);
         }
       } else {
         // Online mode - use bundled audio asset
-        console.log('📦 Using bundled audio asset for online mode');
         audioSource = getAudioAsset(stop.audio);
       }
 
       // If we don't have a sound object yet, create one
       if (!audioRef.current) {
         if (!audioSource || audioSource === 'DOWNLOADED_FILE') {
-          console.error('❌ No audio source available for:', stop.audio);
           Alert.alert('Audio Error', `Audio file not available: ${stop.audio}`);
           return;
         }
 
-        console.log('🎵 Creating audio sound with bundled source');
         
         const { sound } = await Audio.Sound.createAsync(audioSource, {
           shouldPlay: false,
@@ -319,7 +299,6 @@ export default function TourPlayerScreen() {
       }
 
       // Start playing
-      console.log('🎵 Starting audio playback');
       await audioRef.current.playAsync();
       
       setAudioState({
@@ -339,7 +318,6 @@ export default function TourPlayerScreen() {
       ]);
       
     } catch (error) {
-      console.error('❌ Error playing audio:', error);
       Alert.alert('Audio Error', `Could not play audio: ${error.message}\n\nTrying bundled fallback...`);
       
       // Try bundled fallback as last resort
@@ -357,11 +335,9 @@ export default function TourPlayerScreen() {
             currentStopId: stop.id,
             position: 0,
             duration: 0,
-          });
-          console.log('✅ Fallback audio playing');
-        }
+          });        }
       } catch (fallbackError) {
-        console.error('❌ Fallback also failed:', fallbackError);
+        console.error('Fallback also failed:', fallbackError);
       }
     }
   };
@@ -376,7 +352,6 @@ export default function TourPlayerScreen() {
     if (!audioRef.current) {
       // No audio loaded - start playing current stop
       if (currentStop) {
-        console.log('🎵 No audio loaded, starting playback for current stop');
         await playStopAudio(currentStop, currentStopIndex);
       }
       return;
@@ -385,7 +360,6 @@ export default function TourPlayerScreen() {
     try {
       if (audioState.isPlaying) {
         // Currently playing - pause it
-        console.log('⏸️ Pausing audio');
         await audioRef.current.pauseAsync();
         setAudioState((prev) => ({
           ...prev,
@@ -393,7 +367,6 @@ export default function TourPlayerScreen() {
         }));
       } else {
         // Currently paused - resume playback
-        console.log('▶️ Resuming audio');
         await audioRef.current.playAsync();
         setAudioState((prev) => ({
           ...prev,
@@ -401,7 +374,6 @@ export default function TourPlayerScreen() {
         }));
       }
     } catch (error) {
-      console.error('Error toggling audio:', error);
       Alert.alert('Playback Error', 'Could not toggle audio playback');
     }
   };

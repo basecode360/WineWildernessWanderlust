@@ -21,12 +21,9 @@ export const imageAssets = {
 } as const;
 
 export const getImageAsset = (fileName: string) => {
-  console.log('Looking for image file:', fileName);
   const asset = imageAssets[fileName as keyof typeof imageAssets];
 
   if (!asset) {
-    console.error('Image file not found in mapping:', fileName);
-    console.error('Available images:', Object.keys(imageAssets));
     // Return a default placeholder or null
     return null;
   }
@@ -42,11 +39,8 @@ export const getImageAssetWithFallback = (fileName: string, fallback?: any) => {
 
 // Debug function to list all available images
 export const debugImageAssets = () => {
-  console.log('=== AVAILABLE IMAGE ASSETS ===');
   Object.keys(imageAssets).forEach((key, index) => {
-    console.log(`${index + 1}. "${key}"`);
   });
-  console.log('===============================');
 };
 
 // Categorized image assets for easier access

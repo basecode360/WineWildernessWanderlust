@@ -39,8 +39,6 @@ export default function OfflineDownloadsScreen() {
     setRefreshing(true);
     try {
       await refreshOfflineContent();
-    } catch (error) {
-      console.error('Error refreshing offline content:', error);
     } finally {
       setRefreshing(false);
     }

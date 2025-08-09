@@ -11,41 +11,33 @@ export default function IndexScreen() {
   const [splashFinished, setSplashFinished] = useState(false);
 
   useEffect(() => {
-    console.log('🏠 Index screen mounted');
-    console.log('👤 User:', user?.email || 'No user');
-    console.log('⏳ Loading:', loading);
   }, [user, loading]);
 
   useEffect(() => {
     // Handle navigation when auth state changes and splash is finished
     if (!loading && splashFinished) {
       if (user) {
-        console.log('✅ User authenticated, navigating to tabs...');
         // Use router.replace to prevent going back to index
         setTimeout(() => {
           router.replace('/(tabs)');
         }, 100);
       } else {
-        console.log('❌ No user, staying on index (will redirect to auth)');
       }
     }
   }, [user, loading, splashFinished]);
 
   const handleSplashFinished = () => {
-    console.log('🎬 Splash screen finished');
     setSplashFinished(true);
     setShowSplash(false);
   };
 
   // Show splash screen first
   if (showSplash) {
-    console.log('🎬 Showing splash screen...');
     return <SplashScreen onFinished={handleSplashFinished} />;
   }
 
   // Show loading while checking auth state after splash
   if (loading || !splashFinished) {
-    console.log('⏳ Showing loading screen after splash...');
     return (
       <View
         style={{
@@ -72,11 +64,9 @@ export default function IndexScreen() {
 
   // If not authenticated, redirect to auth screen
   if (!user) {
-    console.log('🔐 Redirecting to auth screen');
     return <Redirect href="/auth" />;
   }
 
   // If authenticated, redirect to main tabs
-  console.log('🎯 User is authenticated, should redirect to tabs');
   return <Redirect href="/(tabs)" />;
 }

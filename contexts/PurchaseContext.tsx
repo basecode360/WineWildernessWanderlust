@@ -36,10 +36,8 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   // Load purchases when user signs in
   useEffect(() => {
     if (user) {
-      console.log('👤 User signed in, loading purchases...');
       loadUserPurchases();
     } else {
-      console.log('👤 User signed out, clearing purchases...');
       // Clear purchases when user signs out
       setPurchasedTours([]);
       setPurchaseHistory([]);
@@ -48,12 +46,10 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
 
   const loadUserPurchases = async () => {
     if (!user) {
-      console.log('❌ No user, skipping purchase load');
       return;
     }
 
     setIsLoadingPurchases(true);
-    console.log('🔄 Loading user purchases...');
 
     try {
       // Load both purchased tour IDs and full purchase history
@@ -62,13 +58,10 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
         paymentService.getPurchaseHistory(),
       ]);
 
-      console.log('✅ Purchases loaded:', tourIds);
-      console.log('📜 Purchase history loaded:', history.length, 'items');
 
       setPurchasedTours(tourIds);
       setPurchaseHistory(history);
     } catch (error) {
-      console.error('❌ Error loading purchases:', error);
       // Don't throw error, just log it and continue with empty state
       setPurchasedTours([]);
       setPurchaseHistory([]);
@@ -79,12 +72,10 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
 
   const hasPurchased = (tourId: string): boolean => {
     const purchased = purchasedTours.includes(tourId);
-    console.log(`🔍 Checking if tour ${tourId} is purchased:`, purchased);
     return purchased;
   };
 
   const addPurchase = (tourId: string) => {
-    console.log('➕ Adding purchase to cache:', tourId);
     setPurchasedTours((prev) => {
       if (!prev.includes(tourId)) {
         return [...prev, tourId];
@@ -94,7 +85,6 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   };
 
   const refreshPurchases = async () => {
-    console.log('🔄 Manually refreshing purchases...');
     await loadUserPurchases();
   };
 

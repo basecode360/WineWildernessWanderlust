@@ -28,7 +28,6 @@ serve(async (req) => {
       webhookSecret
     );
 
-    console.log('Received webhook event:', event.type);
 
     switch (event.type) {
       case 'payment_intent.succeeded': {
@@ -43,11 +42,7 @@ serve(async (req) => {
           })
           .eq('payment_intent_id', paymentIntent.id);
 
-        if (error) {
-          console.error('Error updating purchase on webhook:', error);
-        } else {
-          console.log('Purchase updated successfully:', paymentIntent.id);
-        }
+        
         break;
       }
 

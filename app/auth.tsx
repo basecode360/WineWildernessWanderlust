@@ -31,21 +31,12 @@ export default function AuthScreen() {
 
   // Handle navigation when user signs in successfully
   useEffect(() => {
-    console.log(
-      '🔍 Auth screen - User state changed:',
-      user?.email || 'No user'
-    );
-
     if (user) {
-      console.log('✅ User is authenticated, navigating to tabs...');
-
       // Use setTimeout to ensure the navigation happens after state updates
       setTimeout(() => {
         try {
           router.replace('/(tabs)');
-          console.log('🚀 Navigation to tabs triggered');
         } catch (error) {
-          console.error('❌ Navigation error:', error);
           // Fallback navigation
           router.push('/');
         }
@@ -71,14 +62,11 @@ export default function AuthScreen() {
           return;
         }
 
-        console.log('🔐 Starting sign in process...');
         const { error } = await signIn(email, password);
 
         if (error) {
-          console.error('❌ Sign in error:', error.message);
           Alert.alert('Sign In Error', error.message);
         } else {
-          console.log('✅ Sign in successful, waiting for navigation...');
           // Navigation will be handled by useEffect when user state updates
         }
       } else if (mode === 'signup') {
@@ -94,14 +82,11 @@ export default function AuthScreen() {
           return;
         }
 
-        console.log('📝 Starting sign up process...');
         const { error } = await signUp(email, password, fullName);
 
         if (error) {
-          console.error('❌ Sign up error:', error.message);
           Alert.alert('Sign Up Error', error.message);
         } else {
-          console.log('✅ Sign up successful');
           Alert.alert('Success', 'Check your email to confirm your account!', [
             {
               text: 'OK',
@@ -110,14 +95,11 @@ export default function AuthScreen() {
           ]);
         }
       } else if (mode === 'forgot') {
-        console.log('🔄 Starting password reset...');
         const { error } = await resetPassword(email);
 
         if (error) {
-          console.error('❌ Password reset error:', error.message);
           Alert.alert('Error', error.message);
         } else {
-          console.log('✅ Password reset email sent');
           Alert.alert(
             'Success',
             'Check your email for password reset instructions',
@@ -131,7 +113,6 @@ export default function AuthScreen() {
         }
       }
     } catch (error) {
-      console.error('❌ Unexpected error in auth:', error);
       Alert.alert('Error', 'Something went wrong. Please try again.');
     }
 

@@ -44,27 +44,19 @@ export default function TourDetailScreen() {
   const handlePurchase = async () => {
     if (!tour) return;
 
-    console.log('Handle purchase called. isPurchased:', isPurchased);
 
     if (isPurchased) {
       // Already purchased, start tour
-      console.log('Tour already purchased, navigating to player');
       router.push(`/tour/player/${tour.id}`);
       return;
     }
 
     // Show Stripe payment sheet
-    console.log(
-      'Showing payment sheet for tour:',
-      tour.title,
-      'Price:',
-      tour.price
-    );
+    
     setShowPaymentSheet(true);
   };
 
   const handlePurchaseSuccess = async () => {
-    console.log('Purchase successful, updating UI');
     setShowPaymentSheet(false);
 
     // Add to local cache immediately for instant UI update
@@ -85,7 +77,6 @@ export default function TourDetailScreen() {
   };
 
   const handlePurchaseError = (error: string) => {
-    console.error('Purchase error:', error);
     Alert.alert(
       'Purchase Failed',
       error || 'Something went wrong. Please try again.',
@@ -140,11 +131,7 @@ export default function TourDetailScreen() {
             text: 'Cancel Download',
             style: 'destructive',
             onPress: async () => {
-              try {
-                await cancelDownload(id as string);
-              } catch (error) {
-                console.error('Error cancelling download:', error);
-              }
+              await cancelDownload(id as string);
             },
           },
         ]

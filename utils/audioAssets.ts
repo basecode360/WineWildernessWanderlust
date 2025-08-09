@@ -20,17 +20,13 @@ export const audioAssets = {
 } as const;
 
 export const getAudioAsset = (fileName: string) => {
-  console.log('🎵 Looking for audio file:', fileName);
 
   // Direct lookup first
   const asset = audioAssets[fileName as keyof typeof audioAssets];
   if (asset) {
-    console.log('✅ Found audio asset:', fileName);
     return asset;
   }
 
-  // Try alternatives if direct lookup fails
-  console.log('⚠️ Direct lookup failed, trying alternatives for:', fileName);
 
   const alternatives = Object.keys(audioAssets).filter(key => {
     // Try partial matching
@@ -40,12 +36,8 @@ export const getAudioAsset = (fileName: string) => {
 
   if (alternatives.length > 0) {
     const foundKey = alternatives[0];
-    console.log('✅ Found alternative audio asset:', foundKey);
     return audioAssets[foundKey as keyof typeof audioAssets];
   }
-
-  console.error('❌ Audio file not found in mapping:', fileName);
-  console.error('Available audio files:', Object.keys(audioAssets));
   return null;
 };
 
@@ -60,11 +52,8 @@ export const getAudioSource = (fileName: string) => {
 
 // Debug function to list all available audio files
 export const debugAudioAssets = () => {
-  console.log('=== AVAILABLE AUDIO ASSETS ===');
   Object.keys(audioAssets).forEach((key, index) => {
-    console.log(`${index + 1}. "${key}"`);
   });
-  console.log('===============================');
 };
 
 // Type-safe audio keys
@@ -91,7 +80,6 @@ export const loadAudioAssetSimple = (fileName: string) => {
     // Return the require() result directly - no Asset.loadAsync needed
     return asset;
   } catch (error) {
-    console.error('Error getting audio asset:', error);
     return null;
   }
 };

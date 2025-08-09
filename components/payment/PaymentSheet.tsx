@@ -39,12 +39,7 @@ export default function PaymentSheet({
       setIsProcessing(true);
 
       // Step 1: Create payment intent
-      console.log(
-        'Creating payment intent for tour:',
-        tourId,
-        'Amount:',
-        price
-      );
+      
       const paymentResponse = await paymentService.createPaymentIntent(
         tourId,
         price
@@ -63,7 +58,6 @@ export default function PaymentSheet({
       }
 
       // Step 2: Initialize payment sheet
-      console.log('Initializing payment sheet...');
       const { error: initError } = await initPaymentSheet({
         merchantDisplayName: 'Wine Wilderness Wanderlust',
         paymentIntentClientSecret: client_secret,
@@ -86,19 +80,16 @@ export default function PaymentSheet({
       }
 
       // Step 3: Present payment sheet
-      console.log('Presenting payment sheet...');
       const { error: paymentError } = await presentPaymentSheet();
 
       if (paymentError) {
         if (paymentError.code === 'Canceled') {
-          console.log('Payment canceled by user');
           return; // User canceled, don't show error
         }
         throw new Error(paymentError.message || 'Payment failed');
       }
 
       // Step 4: Confirm payment on our backend
-      console.log('Payment successful, confirming...');
       const confirmResult = await paymentService.confirmPayment(
         paymentResponse.paymentIntent.id,
         tourId
@@ -108,7 +99,6 @@ export default function PaymentSheet({
         throw new Error(confirmResult.error || 'Failed to confirm payment');
       }
 
-      console.log('Payment and confirmation successful!');
       onSuccess();
     } catch (error) {
       console.error('Payment error:', error);

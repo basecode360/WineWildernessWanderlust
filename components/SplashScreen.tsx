@@ -174,12 +174,6 @@ export default function SplashScreen({ onFinished }: SplashScreenProps) {
                 source={require('../assets/images/wander-guide-logo.png')}
                 style={styles.logoImage}
                 resizeMode="contain"
-                onError={(error) => {
-                  console.log('Image loading error:', error.nativeEvent.error);
-                }}
-                onLoad={() => {
-                  console.log('Image loaded successfully');
-                }}
               />
             </Animated.View>
           </View>
