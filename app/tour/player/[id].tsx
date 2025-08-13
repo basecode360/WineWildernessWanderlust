@@ -1,10 +1,11 @@
-// app/tour/player/[id].tsx - Complete Tour Player with Enhanced Audio Controls
+// app/tour/player/[id].tsx - FIXED: Updated for TourServices and dynamic data
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as Location from 'expo-location';
 import { useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -17,19 +18,28 @@ import {
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useOffline } from '../../../contexts/OfflineContext';
-import { calculateDistance, getTourById } from '../../../data/tours';
-import { AudioState, LocationData, TourStop } from '../../../types/tour';
+import { useProgress } from '../../../contexts/ProgressContext';
+// FIXED: Import from TourServices (correct name)
+import { calculateDistance, getImageSource, getTourById } from '../../../services/tourServices';
+import { AudioState, LocationData, Tour, TourStop } from '../../../types/tour';
 import { getAudioAsset } from '../../../utils/audioAssets';
-import { getImageAsset } from '../../../utils/imageAssets';
+import { ERROR_MESSAGES } from '../../../utils/constants';
 
 const { width: screenWidth } = Dimensions.get('window');
 const PROXIMITY_THRESHOLD = 100; // meters
 
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const tour = getTourById(id as string);
-  const { 
-    isTourOffline, 
+  const { markStopCompleted } = useProgress(); // Add this line
+
+
+  // CHANGED: Dynamic tour loading instead of static
+  const [tour, setTour] = useState<Tour | null>(null);
+  const [isLoadingTour, setIsLoadingTour] = useState(true);
+  const [tourError, setTourError] = useState<string | null>(null);
+
+  const {
+    isTourOffline,
     getOfflineAudioPath
   } = useOffline();
 
@@ -52,6 +62,37 @@ export default function TourPlayerScreen() {
   const locationSubscription = useRef<Location.LocationSubscription | null>(
     null
   );
+
+  // NEW: Load tour data when component mounts
+  useEffect(() => {
+    if (id) {
+      loadTour(id as string);
+    }
+  }, [id]);
+
+  // NEW: Function to load tour from Supabase
+  const loadTour = async (tourId: string) => {
+    try {
+      setIsLoadingTour(true);
+      setTourError(null);
+      console.log(`🔄 Loading tour ${tourId} for audio player...`);
+
+      const tourData = await getTourById(tourId);
+      setTour(tourData);
+
+      if (tourData) {
+        console.log(`✅ Tour loaded for player: ${tourData.title} with ${tourData.stops.length} stops`);
+      } else {
+        console.log(`⚠️ Tour ${tourId} not found`);
+        setTourError('Tour not found');
+      }
+    } catch (error) {
+      console.error('❌ Failed to load tour for player:', error);
+      setTourError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
+    } finally {
+      setIsLoadingTour(false);
+    }
+  };
 
   useEffect(() => {
     checkOfflineMode();
@@ -170,7 +211,7 @@ export default function TourPlayerScreen() {
   };
 
   const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
-    sound.setOnPlaybackStatusUpdate((status) => {
+    sound.setOnPlaybackStatusUpdate(async (status) => {
       if (status.isLoaded) {
         setAudioState((prev) => ({
           ...prev,
@@ -179,23 +220,32 @@ export default function TourPlayerScreen() {
           isPlaying: status.isPlaying || false,
           currentStopId: stopId,
         }));
-        
+
         if (status.didJustFinish) {
+          console.log('🏁 TourPlayer: Audio playback finished');
+
+          // Mark this stop as completed
+          if (tour && stopId) {
+            await markStopCompleted(tour.id, stopId);
+            console.log('🎉 Stop marked as completed:', stopId);
+          }
+
           // Reset to play icon when audio finishes
-          setAudioState(prev => ({ 
-            ...prev, 
+          setAudioState(prev => ({
+            ...prev,
             isPlaying: false,
-            position: 0 
+            position: 0
           }));
-          
+
           // Clean up sound object after a short delay
           setTimeout(async () => {
             try {
               if (audioRef.current) {
                 await audioRef.current.unloadAsync();
-                audioRef.current = null;              }
+                audioRef.current = null;
+              }
             } catch (error) {
-              console.error('Error cleaning up sound after finish:', error);
+              console.error('❌ TourPlayer: Error cleaning up sound after finish:', error);
             }
           }, 100);
         }
@@ -205,8 +255,6 @@ export default function TourPlayerScreen() {
 
   const triggerAudioForStop = async (stop: TourStop, index: number) => {
     try {
-    
-
       // Initialize audio mode first
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
@@ -225,20 +273,18 @@ export default function TourPlayerScreen() {
       let audioSource;
 
       if (isOfflineMode && tour) {
-        
         // Try to get offline audio path
         const offlineAudioPath = await getOfflineAudioPath(tour.id, stop.id);
 
         if (offlineAudioPath && offlineAudioPath !== 'BUNDLED_AUDIO') {
           // Check if the file actually exists and is accessible
           try {
-            
             // Create new Audio.Sound and load with file URI
             const { sound } = await Audio.Sound.createAsync(
               { uri: offlineAudioPath },
               { shouldPlay: false, volume: 1.0 }
             );
-            
+
             // Test if the sound loaded successfully
             const status = await sound.getStatusAsync();
             if (status.isLoaded) {
@@ -255,7 +301,7 @@ export default function TourPlayerScreen() {
         } else if (offlineAudioPath === 'BUNDLED_AUDIO') {
           // Use bundled audio asset
           audioSource = getAudioAsset(stop.audio);
-          
+
           if (!audioSource) {
             // Try with different audio file extensions if needed
             const audioAlternatives = [
@@ -263,7 +309,7 @@ export default function TourPlayerScreen() {
               stop.audio.replace('.wav', '.mp3'),
               stop.audio.replace('.mp3', '.wav'),
             ];
-            
+
             for (const altAudio of audioAlternatives) {
               const altSource = getAudioAsset(altAudio);
               if (altSource) {
@@ -287,7 +333,6 @@ export default function TourPlayerScreen() {
           return;
         }
 
-        
         const { sound } = await Audio.Sound.createAsync(audioSource, {
           shouldPlay: false,
           volume: 1.0,
@@ -300,26 +345,26 @@ export default function TourPlayerScreen() {
 
       // Start playing
       await audioRef.current.playAsync();
-      
+
       setAudioState({
         isPlaying: true,
         currentStopId: stop.id,
         position: 0,
         duration: 0,
       });
-      
+
       setCurrentStopIndex(index);
       stop.isPlayed = true;
-      
+
       const sourceType = audioSource === 'DOWNLOADED_FILE' ? 'Downloaded' : 'Bundled';
       const modeText = isOfflineMode ? ` (Offline - ${sourceType})` : ` (Online - ${sourceType})`;
       Alert.alert('🎧 Audio Started', `Now playing: ${stop.title}${modeText}`, [
         { text: 'OK' },
       ]);
-      
+
     } catch (error) {
       Alert.alert('Audio Error', `Could not play audio: ${error.message}\n\nTrying bundled fallback...`);
-      
+
       // Try bundled fallback as last resort
       try {
         const fallbackSource = getAudioAsset(stop.audio);
@@ -335,7 +380,8 @@ export default function TourPlayerScreen() {
             currentStopId: stop.id,
             position: 0,
             duration: 0,
-          });        }
+          });
+        }
       } catch (fallbackError) {
         console.error('Fallback also failed:', fallbackError);
       }
@@ -348,7 +394,7 @@ export default function TourPlayerScreen() {
 
   const toggleAudio = async () => {
     const currentStop = tour?.stops[currentStopIndex];
-    
+
     if (!audioRef.current) {
       // No audio loaded - start playing current stop
       if (currentStop) {
@@ -381,7 +427,7 @@ export default function TourPlayerScreen() {
   const openDirections = (stop: TourStop) => {
     const { lat, lng } = stop.coordinates;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-    
+
     Linking.canOpenURL(url)
       .then((supported) => {
         if (supported) {
@@ -411,40 +457,80 @@ export default function TourPlayerScreen() {
   };
 
   const renderStopImage = (stop: TourStop) => {
-    if (!stop.image) return null;
+    console.log(`🖼️ TourPlayer: Rendering stop image for "${stop.title}"`);
+    console.log(`🖼️ TourPlayer: Stop image path:`, stop.image || 'NO IMAGE');
 
-    if (isOfflineMode && tour) {
-      return (
-        <Image
-          source={getImageAsset(stop.image)} // Fallback to bundled asset
-          style={styles.stopThumbnail}
-          resizeMode="cover"
-          onError={() => {
-            console.warn('Failed to load image:', stop.image);
-          }}
-        />
-      );
+    if (!stop.image) {
+      console.log(`⚠️ TourPlayer: No image for stop "${stop.title}"`);
+      return null;
+    }
+
+    // Use the new getImageSource function
+    const imageSource = getImageSource(stop.image);
+    console.log(`🖼️ TourPlayer: Resolved image source:`, imageSource);
+
+    if (!imageSource) {
+      console.log(`❌ TourPlayer: No image source resolved for "${stop.title}"`);
+      return null;
     }
 
     return (
       <Image
-        source={getImageAsset(stop.image)}
+        source={imageSource} // This will be either require() for local or {uri} for remote
         style={styles.stopThumbnail}
         resizeMode="cover"
+        onLoad={() => {
+          console.log(`✅ TourPlayer: Stop image loaded for "${stop.title}"`);
+        }}
+        onError={(error) => {
+          console.error(`❌ TourPlayer: Failed to load stop image for "${stop.title}":`, error.nativeEvent);
+          console.error(`❌ TourPlayer: Failed source:`, imageSource);
+        }}
+        onLoadStart={() => {
+          console.log(`🔄 TourPlayer: Started loading stop image for "${stop.title}"`);
+        }}
+        onLoadEnd={() => {
+          console.log(`🏁 TourPlayer: Finished loading stop image for "${stop.title}"`);
+        }}
       />
     );
   };
 
   const renderCurrentStopImage = (stop: TourStop) => {
-    if (!stop?.image) return null;
+    console.log(`🖼️ TourPlayer: Rendering current stop image for "${stop?.title}"`);
+    console.log(`🖼️ TourPlayer: Current stop image path:`, stop?.image || 'NO IMAGE');
+
+    if (!stop?.image) {
+      console.log(`⚠️ TourPlayer: No image for current stop "${stop?.title}"`);
+      return null;
+    }
+
+    // Use the new getImageSource function
+    const imageSource = getImageSource(stop.image);
+    console.log(`🖼️ TourPlayer: Resolved current stop image source:`, imageSource);
+
+    if (!imageSource) {
+      console.log(`❌ TourPlayer: No image source resolved for current stop "${stop.title}"`);
+      return null;
+    }
 
     return (
       <Image
-        source={getImageAsset(stop.image)}
+        source={imageSource} // This will be either require() for local or {uri} for remote
         style={styles.currentStopImage}
         resizeMode="cover"
-        onError={() => {
-          console.warn('Failed to load current stop image:', stop.image);
+        onLoad={() => {
+          console.log(`✅ TourPlayer: Current stop image loaded for "${stop.title}"`);
+        }}
+        onError={(error) => {
+          console.error(`❌ TourPlayer: Failed to load current stop image for "${stop.title}":`, error.nativeEvent);
+          console.error(`❌ TourPlayer: Failed source:`, imageSource);
+        }}
+        onLoadStart={() => {
+          console.log(`🔄 TourPlayer: Started loading current stop image for "${stop.title}"`);
+        }}
+        onLoadEnd={() => {
+          console.log(`🏁 TourPlayer: Finished loading current stop image for "${stop.title}"`);
         }}
       />
     );
@@ -465,10 +551,31 @@ export default function TourPlayerScreen() {
     }
   };
 
-  if (!tour) {
+  // NEW: Loading state
+  if (isLoadingTour) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#5CC4C4" />
+        <Text style={styles.loadingText}>Loading tour...</Text>
+      </View>
+    );
+  }
+
+  // NEW: Error state
+  if (tourError || !tour) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Tour not found</Text>
+        <Ionicons name="warning-outline" size={64} color="#F44336" />
+        <Text style={styles.errorTitle}>Unable to Load Tour</Text>
+        <Text style={styles.errorText}>
+          {tourError || 'Tour not found'}
+        </Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => id && loadTour(id as string)}
+        >
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -601,7 +708,7 @@ export default function TourPlayerScreen() {
             <Text style={styles.offlineIndicator}> • Offline</Text>
           )}
         </Text>
-        
+
         {selectedStopForDirection && (
           <View style={styles.directionPrompt}>
             <Text style={styles.directionText}>
@@ -690,14 +797,51 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
+  // NEW: Loading container
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   errorText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#5CC4C4',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   mapContainer: {
     height: 300,
@@ -714,7 +858,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 8,
   },
-
   statusContainer: {
     position: 'absolute',
     top: 10,

@@ -1,4 +1,4 @@
-// utils/constants.ts - App constants and configuration
+// utils/constants.ts - Updated with Supabase configuration
 export const COLORS = {
   primary: '#5CC4C4',
   secondary: '#4CAF50',
@@ -65,13 +65,23 @@ export const STORAGE = {
   CLEANUP_THRESHOLD: 0.9, // 90% of max cache size
 } as const;
 
+// UPDATED: API configuration with Supabase
 export const API = {
+  // Keep your existing API for other services
   BASE_URL: 'https://api.winewildernesswanderlust.com',
   ENDPOINTS: {
     tours: '/tours',
     audio: '/audio',
     images: '/images',
     purchase: '/purchase',
+  },
+  // ADD: Supabase configuration (REQUIRED for services/tourService.ts)
+  SUPABASE: {
+    STORAGE_URL: 'https://ibgfliafcsbmyiktekjp.supabase.co/storage/v1/object/public',
+    BUCKETS: {
+      TOUR_IMAGES: 'tour_images',
+      TOUR_AUDIO: 'tour_audio',
+    },
   },
   TIMEOUT: 30000, // 30 seconds
 } as const;
@@ -98,7 +108,7 @@ export const TOUR_CONFIG = {
   },
 } as const;
 
-// Error messages
+// UPDATED: Error messages (REQUIRED for services/tourService.ts)
 export const ERROR_MESSAGES = {
   LOCATION_PERMISSION_DENIED:
     'Location permission is required for the audio tour to work properly.',
@@ -108,11 +118,13 @@ export const ERROR_MESSAGES = {
   PAYMENT_FAILED: 'Payment failed. Please try again.',
   TOUR_NOT_FOUND: 'Tour not found.',
   NETWORK_ERROR: 'Network error. Please check your internet connection.',
+  API_ERROR: 'Failed to load data. Please try again.', // ADDED - Required by tourService
 } as const;
 
-// Success messages
+// UPDATED: Success messages
 export const SUCCESS_MESSAGES = {
   TOUR_PURCHASED: 'Tour purchased successfully!',
   DOWNLOAD_COMPLETE: 'Download completed. Tour is now available offline.',
   AUDIO_READY: 'Audio is ready to play.',
+  DATA_LOADED: 'Data loaded successfully.', // ADDED
 } as const;

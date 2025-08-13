@@ -1,8 +1,8 @@
 // services/OfflineService.ts - Complete offline tour management
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
-import { getTourById } from '../data/tours';
 import { Tour, TourStop } from '../types/tour';
+import { getTourById } from './tourServices';
 
 export interface OfflineContent {
   tourId: string;

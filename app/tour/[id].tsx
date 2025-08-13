@@ -1,8 +1,9 @@
-// app/tour/[id].tsx - Complete Tour Detail Screen with instant purchase status
+// app/tour/[id].tsx - Updated Tour Detail Screen with dynamic Supabase data
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react'; // ADDED: useEffect
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -13,15 +14,22 @@ import {
   View,
 } from 'react-native';
 import PaymentSheet from '../../components/payment/PaymentSheet';
-import { usePurchases } from '../../contexts/PurchaseContext';
 import { useOffline } from '../../contexts/OfflineContext';
-import { getTourById } from '../../data/tours';
-import { TourStop } from '../../types/tour';
-import { getImageAsset } from '../../utils/imageAssets';
+import { usePurchases } from '../../contexts/PurchaseContext.tsx';
+// CHANGED: Import from services instead of data
+import { getImageSource, getTourById } from '../../services/tourServices';
+import { Tour, TourStop } from '../../types/tour'; // ADDED: Tour type
+import { ERROR_MESSAGES } from '../../utils/constants'; // ADDED: Error messages
+// REMOVED: import { getImageAsset } from '../../utils/imageAssets';
 
 export default function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const tour = getTourById(id as string);
+
+  // NEW: State for dynamic tour data
+  const [tour, setTour] = useState<Tour | null>(null);
+  const [isLoadingTour, setIsLoadingTour] = useState(true);
+  const [tourError, setTourError] = useState<string | null>(null);
+
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
 
   const { hasPurchased, addPurchase } = usePurchases();
@@ -35,6 +43,37 @@ export default function TourDetailScreen() {
     cancelDownload,
   } = useOffline();
 
+  // NEW: Load tour data on component mount
+  useEffect(() => {
+    if (id) {
+      loadTour(id as string);
+    }
+  }, [id]);
+
+  // NEW: Function to load tour from Supabase
+  const loadTour = async (tourId: string) => {
+    try {
+      setIsLoadingTour(true);
+      setTourError(null);
+      console.log(`🔄 Loading tour details for: ${tourId}`);
+
+      const tourData = await getTourById(tourId);
+      setTour(tourData);
+
+      if (tourData) {
+        console.log(`✅ Tour loaded: ${tourData.title} with ${tourData.stops.length} stops`);
+      } else {
+        console.log(`⚠️ Tour ${tourId} not found`);
+        setTourError('Tour not found');
+      }
+    } catch (error) {
+      console.error('❌ Failed to load tour:', error);
+      setTourError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
+    } finally {
+      setIsLoadingTour(false);
+    }
+  };
+
   // Get purchase status instantly from cache
   const isPurchased = hasPurchased(id as string);
   const isOffline = isTourOffline(id as string);
@@ -44,7 +83,6 @@ export default function TourDetailScreen() {
   const handlePurchase = async () => {
     if (!tour) return;
 
-
     if (isPurchased) {
       // Already purchased, start tour
       router.push(`/tour/player/${tour.id}`);
@@ -52,7 +90,6 @@ export default function TourDetailScreen() {
     }
 
     // Show Stripe payment sheet
-    
     setShowPaymentSheet(true);
   };
 
@@ -158,10 +195,37 @@ export default function TourDetailScreen() {
     }
   };
 
-  if (!tour) {
+  // NEW: Loading state
+  if (isLoadingTour) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#5CC4C4" />
+        <Text style={styles.loadingText}>Loading tour details...</Text>
+      </View>
+    );
+  }
+
+  // NEW: Error state
+  if (tourError || !tour) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Tour not found</Text>
+        <Ionicons name="warning-outline" size={64} color="#F44336" />
+        <Text style={styles.errorTitle}>Unable to Load Tour</Text>
+        <Text style={styles.errorText}>
+          {tourError || 'Tour not found'}
+        </Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => id && loadTour(id as string)}
+        >
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -197,9 +261,16 @@ export default function TourDetailScreen() {
       <View style={styles.imageContainer}>
         {tour.image ? (
           <Image
-            source={getImageAsset(tour.image)}
+            source={getImageSource(tour.image)} // Use the smart image source function
             style={styles.tourImage}
             resizeMode="cover"
+            onError={(e) => {
+              console.log('❌ Tour detail image error:', e.nativeEvent.error);
+              console.log('❌ Failed tour image source:', tour.image);
+            }}
+            onLoad={() => {
+              console.log('✅ Tour detail image loaded');
+            }}
           />
         ) : (
           <View style={styles.imagePlaceholder}>
@@ -393,19 +464,73 @@ export default function TourDetailScreen() {
   );
 }
 
+// UPDATED: Styles with new loading and error states
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
+  // NEW: Loading state styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // UPDATED: Error container styles
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   errorText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  // NEW: Button styles for error state
+  retryButton: {
+    backgroundColor: '#5CC4C4',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+    marginBottom: 12,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  backButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  backButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
   },
   imageContainer: {
     height: 250,

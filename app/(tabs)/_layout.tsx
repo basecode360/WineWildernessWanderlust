@@ -1,8 +1,8 @@
 // app/(tabs)/_layout.tsx - Protected tabs layout
-import { Redirect, Tabs } from 'expo-router';
-import { useAuth } from '../../contexts/AuthContext';
-import { ActivityIndicator, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Redirect, Tabs } from 'expo-router';
+import { ActivityIndicator, View } from 'react-native';
+import { useAuth } from '../../contexts/AuthContext';
 
 function TabBarIcon({
   name,

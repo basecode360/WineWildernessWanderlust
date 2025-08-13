@@ -1,24 +1,30 @@
 // app/offline-downloads.tsx - Offline Downloads Management Screen
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Alert,
   FlatList,
   Image,
   RefreshControl,
   SafeAreaView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
-  StatusBar,
 } from 'react-native';
-import { useOffline } from '../contexts/OfflineContext';
-import { OfflineContent } from '../services/OfflineService';
-import { getImageAsset } from '../utils/imageAssets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useOffline } from '../contexts/OfflineContext';
+import { getImageSource } from '../services/tourServices';
 
+// OfflineContent type is already defined in OfflineContext
+interface OfflineContent {
+  tourId: string;
+  tourData: any;
+  downloadedAt: string;
+  size: number;
+}
 
 export default function OfflineDownloadsScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -34,6 +40,20 @@ export default function OfflineDownloadsScreen() {
     clearAllOfflineContent,
     formatStorageSize,
   } = useOffline();
+
+  // DEBUG LOGS
+  console.log('🧪 DEBUG Offline Downloads Screen:');
+  console.log('📊 offlineTours:', offlineTours);
+  console.log('📊 offlineTours.length:', offlineTours.length);
+  console.log('📊 totalStorageUsed:', totalStorageUsed);
+  console.log('📊 typeof totalStorageUsed:', typeof totalStorageUsed);
+  console.log('📊 isLoadingOffline:', isLoadingOffline);
+  
+  // Test the formatStorageSize function directly
+  console.log('🧪 Testing formatStorageSize function:');
+  console.log('📊 formatStorageSize(0):', formatStorageSize(0));
+  console.log('📊 formatStorageSize(1024):', formatStorageSize(1024));
+  console.log('📊 formatStorageSize(totalStorageUsed):', formatStorageSize(totalStorageUsed));
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -128,7 +148,7 @@ export default function OfflineDownloadsScreen() {
       <View style={styles.tourImageContainer}>
         {item.tourData.image ? (
           <Image
-            source={getImageAsset(item.tourData.image)}
+            source={getImageSource(item.tourData.image)}
             style={styles.tourImage}
             resizeMode="cover"
           />
@@ -300,7 +320,7 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   headerRight: {
-    width: 40, // Balance the back button
+    width: 40,
   },
   storageContainer: {
     backgroundColor: '#fff',

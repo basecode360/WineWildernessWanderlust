@@ -1,11 +1,13 @@
-// app/(tabs)/index.tsx - Updated Tours Screen with instant purchase status
+// app/(tabs)/index.tsx - Updated Tours Screen with dynamic Supabase data
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React from 'react';
+import { useEffect, useState } from 'react'; // ADDED: useState, useEffect
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
-  Image,
+  Image, // ADDED: Alert
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,19 +15,69 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useProgress } from '../../contexts/ProgressContext'; // Add this
 import { useAuth } from '../../contexts/AuthContext';
 import { useOffline } from '../../contexts/OfflineContext';
 import { usePurchases } from '../../contexts/PurchaseContext';
-import { getAllTours } from '../../data/tours';
-import { getImageAsset } from '../../utils/imageAssets';
+// CHANGED: Import from services instead of data
+import { getAllTours, getImageSource } from '../../services/tourServices';
+// REMOVED: import { getImageAsset } from '../../utils/imageAssets';
+import { Tour } from '../../types/tour'; // ADDED: Tour type
+import { ERROR_MESSAGES } from '../../utils/constants'; // ADDED: Error messages
 
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function ToursScreen() {
-  const tours = getAllTours();
+  // CHANGED: Dynamic state instead of static data
+  const [tours, setTours] = useState<Tour[]>([]);
+  const [isLoadingTours, setIsLoadingTours] = useState(true);
+  const [toursError, setToursError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  
   const { user } = useAuth();
+  const { totalVisitedPlaces } = useProgress(); // Add this
   const { hasPurchased, isLoadingPurchases } = usePurchases();
   const { offlineTours, totalStorageUsed, formatStorageSize } = useOffline();
+
+  // NEW: Load tours on component mount
+  useEffect(() => {
+    loadTours();
+  }, []);
+
+  // NEW: Function to load tours from Supabase
+  const loadTours = async () => {
+    try {
+      setIsLoadingTours(true);
+      setToursError(null);
+      console.log('📱 Loading tours from Supabase...');
+      
+      const toursData = await getAllTours();
+      setTours(toursData);
+      console.log('✅ Tours loaded successfully:', toursData.length);
+    } catch (error) {
+      console.error('❌ Failed to load tours:', error);
+      setToursError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
+      
+      // Show alert to user
+      Alert.alert(
+        'Error Loading Tours',
+        'Unable to load tours. Please check your internet connection and try again.',
+        [
+          { text: 'Retry', onPress: loadTours },
+          { text: 'Cancel' }
+        ]
+      );
+    } finally {
+      setIsLoadingTours(false);
+    }
+  };
+
+  // NEW: Pull to refresh function
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadTours();
+    setRefreshing(false);
+  };
 
   const handleTourPress = (tourId: string) => {
     router.push(`/tour/${tourId}`);
@@ -39,20 +91,66 @@ export default function ToursScreen() {
     return tours.filter((tour) => hasPurchased(tour.id)).length;
   };
 
-  if (isLoadingPurchases) {
+  // UPDATED: Loading state
+  if (isLoadingPurchases || (isLoadingTours && !refreshing)) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#5CC4C4" />
-          <Text style={styles.loadingText}>Loading your tours...</Text>
+          <Text style={styles.loadingText}>
+            {isLoadingTours ? 'Loading tours...' : 'Loading your tours...'}
+          </Text>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  // NEW: Error state
+  if (toursError && !refreshing) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="warning-outline" size={64} color="#F44336" />
+          <Text style={styles.errorTitle}>Unable to Load Tours</Text>
+          <Text style={styles.errorText}>{toursError}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={loadTours}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // NEW: Empty state
+  if (tours.length === 0 && !isLoadingTours) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          <View style={styles.emptyContainer}>
+            <Ionicons name="map-outline" size={64} color="#666" />
+            <Text style={styles.emptyTitle}>No Tours Available</Text>
+            <Text style={styles.emptyText}>Check back later for new tours!</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={loadTours}>
+              <Text style={styles.retryButtonText}>Refresh</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeText}>
@@ -79,11 +177,18 @@ export default function ToursScreen() {
               >
                 {/* Tour Image */}
                 <View style={styles.imageContainer}>
-                  <Image
-                    source={getImageAsset(tour.image)}
-                    style={styles.tourImage}
-                    resizeMode="cover"
-                  />
+                 <Image
+  source={getImageSource(tour.image)} // Use the smart image source function
+  style={styles.tourImage}
+  resizeMode="cover"
+  onError={(e) => {
+    console.log('❌ Image load error for tour:', tour.id, e.nativeEvent.error);
+    console.log('❌ Failed image source:', tour.image);
+  }}
+  onLoad={() => {
+    console.log('✅ Image loaded for tour:', tour.id);
+  }}
+/>
                   <View style={styles.imageOverlay}>
                     {isPurchased ? (
                       <View style={styles.purchasedTag}>
@@ -186,11 +291,11 @@ export default function ToursScreen() {
               <Text style={styles.statLabel}>Downloaded</Text>
             </View>
 
-            <View style={styles.statCard}>
-              <Ionicons name="location" size={32} color="#5CC4C4" />
-              <Text style={styles.statNumber}>0</Text>
-              <Text style={styles.statLabel}>Places Visited</Text>
-            </View>
+ <View style={styles.statCard}>
+  <Ionicons name="location" size={32} color="#5CC4C4" />
+  <Text style={styles.statNumber}>{totalVisitedPlaces}</Text> {/* Changed from 0 */}
+  <Text style={styles.statLabel}>Places Visited</Text>
+</View>
           </View>
         </View>
 
@@ -201,6 +306,7 @@ export default function ToursScreen() {
   );
 }
 
+// UPDATED: Styles with new error and empty states
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -217,6 +323,58 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
+  },
+  // NEW: Error state styles
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  // NEW: Empty state styles
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    minHeight: 400,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: '#5CC4C4',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   welcomeSection: {
     padding: 20,

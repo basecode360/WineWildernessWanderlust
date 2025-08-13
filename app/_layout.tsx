@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from '../contexts/AuthContext';
 import { OfflineProvider } from '../contexts/OfflineContext';
+import { ProgressProvider } from '../contexts/ProgressContext';
 import { PurchaseProvider } from '../contexts/PurchaseContext';
 
 const STRIPE_PUBLISHABLE_KEY =
@@ -20,6 +21,7 @@ export default function RootLayout() {
       <AuthProvider>
         <PurchaseProvider>
           <OfflineProvider>
+             <ProgressProvider> 
             <StatusBar style="light" backgroundColor="#5CC4C4" />
             <Stack
               screenOptions={{
@@ -84,6 +86,7 @@ export default function RootLayout() {
                 }}
               />
             </Stack>
+             </ProgressProvider> 
           </OfflineProvider>
         </PurchaseProvider>
       </AuthProvider>

@@ -1,5 +1,5 @@
 // contexts/PurchaseContext.tsx - Global purchase state management
-import React, {
+import {
   createContext,
   ReactNode,
   useContext,
