@@ -15,9 +15,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useProgress } from '../../contexts/ProgressContext'; // Add this
 import { useAuth } from '../../contexts/AuthContext';
 import { useOffline } from '../../contexts/OfflineContext';
+import { useProgress } from '../../contexts/ProgressContext'; // Add this
 import { usePurchases } from '../../contexts/PurchaseContext';
 // CHANGED: Import from services instead of data
 import { getAllTours, getImageSource } from '../../services/tourServices';
@@ -33,7 +33,7 @@ export default function ToursScreen() {
   const [isLoadingTours, setIsLoadingTours] = useState(true);
   const [toursError, setToursError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  
+
   const { user } = useAuth();
   const { totalVisitedPlaces } = useProgress(); // Add this
   const { hasPurchased, isLoadingPurchases } = usePurchases();
@@ -50,14 +50,14 @@ export default function ToursScreen() {
       setIsLoadingTours(true);
       setToursError(null);
       console.log('📱 Loading tours from Supabase...');
-      
+
       const toursData = await getAllTours();
       setTours(toursData);
       console.log('✅ Tours loaded successfully:', toursData.length);
     } catch (error) {
       console.error('❌ Failed to load tours:', error);
       setToursError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
-      
+
       // Show alert to user
       Alert.alert(
         'Error Loading Tours',
@@ -145,7 +145,7 @@ export default function ToursScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
+      <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -177,18 +177,18 @@ export default function ToursScreen() {
               >
                 {/* Tour Image */}
                 <View style={styles.imageContainer}>
-                 <Image
-  source={getImageSource(tour.image)} // Use the smart image source function
-  style={styles.tourImage}
-  resizeMode="cover"
-  onError={(e) => {
-    console.log('❌ Image load error for tour:', tour.id, e.nativeEvent.error);
-    console.log('❌ Failed image source:', tour.image);
-  }}
-  onLoad={() => {
-    console.log('✅ Image loaded for tour:', tour.id);
-  }}
-/>
+                  <Image
+                    source={getImageSource(tour.image)} // Use the smart image source function
+                    style={styles.tourImage}
+                    resizeMode="cover"
+                    onError={(e) => {
+                      console.log('❌ Image load error for tour:', tour.id, e.nativeEvent.error);
+                      console.log('❌ Failed image source:', tour.image);
+                    }}
+                    onLoad={() => {
+                      console.log('✅ Image loaded for tour:', tour.id);
+                    }}
+                  />
                   <View style={styles.imageOverlay}>
                     {isPurchased ? (
                       <View style={styles.purchasedTag}>
@@ -291,11 +291,11 @@ export default function ToursScreen() {
               <Text style={styles.statLabel}>Downloaded</Text>
             </View>
 
- <View style={styles.statCard}>
-  <Ionicons name="location" size={32} color="#5CC4C4" />
-  <Text style={styles.statNumber}>{totalVisitedPlaces}</Text> {/* Changed from 0 */}
-  <Text style={styles.statLabel}>Places Visited</Text>
-</View>
+            <View style={styles.statCard}>
+              <Ionicons name="location" size={32} color="#5CC4C4" />
+              <Text style={styles.statNumber}>{totalVisitedPlaces}</Text> {/* Changed from 0 */}
+              <Text style={styles.statLabel}>Places Visited</Text>
+            </View>
           </View>
         </View>
 
