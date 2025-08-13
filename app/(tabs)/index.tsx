@@ -1,12 +1,12 @@
-// app/(tabs)/index.tsx - Updated Tours Screen with dynamic Supabase data
+// app/(tabs)/index.tsx - Offline-first Tours Screen
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react'; // ADDED: useState, useEffect
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  Image, // ADDED: Alert
+  Image,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -17,62 +17,178 @@ import {
 } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOffline } from '../../contexts/OfflineContext';
-import { useProgress } from '../../contexts/ProgressContext'; // Add this
+import { useProgress } from '../../contexts/ProgressContext';
 import { usePurchases } from '../../contexts/PurchaseContext';
-// CHANGED: Import from services instead of data
 import { getAllTours, getImageSource } from '../../services/tourServices';
-// REMOVED: import { getImageAsset } from '../../utils/imageAssets';
-import { Tour } from '../../types/tour'; // ADDED: Tour type
-import { ERROR_MESSAGES } from '../../utils/constants'; // ADDED: Error messages
+import { Tour } from '../../types/tour';
+import { ERROR_MESSAGES } from '../../utils/constants';
 
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function ToursScreen() {
-  // CHANGED: Dynamic state instead of static data
+  // State for both online and offline tours
   const [tours, setTours] = useState<Tour[]>([]);
   const [isLoadingTours, setIsLoadingTours] = useState(true);
   const [toursError, setToursError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [dataSource, setDataSource] = useState<'online' | 'offline' | 'mixed'>('online');
 
   const { user } = useAuth();
-  const { totalVisitedPlaces } = useProgress(); // Add this
+  const { totalVisitedPlaces } = useProgress();
   const { hasPurchased, isLoadingPurchases } = usePurchases();
-  const { offlineTours, totalStorageUsed, formatStorageSize } = useOffline();
+  const { 
+    offlineTours, 
+    isLoadingOffline, 
+    totalStorageUsed, 
+    formatStorageSize, 
+    isOnline,
+    isTourOffline,
+    getOfflineTour
+  } = useOffline();
 
-  // NEW: Load tours on component mount
+  // Load tours on component mount
   useEffect(() => {
     loadTours();
   }, []);
 
-  // NEW: Function to load tours from Supabase
+  // Watch for offline tours changes
+  useEffect(() => {
+    if (offlineTours.length > 0 && tours.length === 0) {
+      console.log('📱 No online tours but found offline tours, using offline data');
+      setTours(offlineTours.map(content => ({
+        ...content.tourData,
+        isDownloaded: true
+      })));
+      setDataSource('offline');
+      setIsLoadingTours(false);
+    }
+  }, [offlineTours, tours.length]);
+
+  // Enhanced load tours function with offline-first approach
   const loadTours = async () => {
     try {
       setIsLoadingTours(true);
       setToursError(null);
-      console.log('📱 Loading tours from Supabase...');
+      console.log('📱 Loading tours with offline-first approach...');
 
-      const toursData = await getAllTours();
-      setTours(toursData);
-      console.log('✅ Tours loaded successfully:', toursData.length);
+      // First, always show offline tours if we have them (immediate response)
+      if (offlineTours.length > 0 && !refreshing) {
+        console.log(`📱 Showing ${offlineTours.length} offline tours immediately`);
+        setTours(offlineTours.map(content => ({
+          ...content.tourData,
+          isDownloaded: true
+        })));
+        setDataSource('offline');
+        setIsLoadingTours(false);
+      }
+
+      // Then try to fetch online tours (if connected)
+      if (isOnline) {
+        console.log('🌐 Network available, fetching latest tours from Supabase...');
+        
+        try {
+          const onlineToursData = await getAllTours();
+          console.log(`🌐 Loaded ${onlineToursData.length} tours from Supabase`);
+          
+          // Merge online and offline tours
+          const mergedTours = mergeToursData(onlineToursData, offlineTours);
+          setTours(mergedTours);
+          setDataSource(offlineTours.length > 0 ? 'mixed' : 'online');
+          
+        } catch (onlineError) {
+          console.warn('⚠️ Failed to load online tours, keeping offline data:', onlineError);
+          
+          // If we have offline tours, keep using them
+          if (offlineTours.length > 0) {
+            console.log('📱 Using offline tours as fallback');
+            setTours(offlineTours.map(content => ({
+              ...content.tourData,
+              isDownloaded: true
+            })));
+            setDataSource('offline');
+          } else {
+            // No offline tours and online failed
+            throw onlineError;
+          }
+        }
+      } else {
+        console.log('🔌 No network connection');
+        
+        // If offline and we have cached tours, use them
+        if (offlineTours.length > 0) {
+          console.log('📱 Using offline tours (no network)');
+          setTours(offlineTours.map(content => ({
+            ...content.tourData,
+            isDownloaded: true
+          })));
+          setDataSource('offline');
+        } else {
+          // No network and no offline tours
+          throw new Error('No internet connection and no offline tours available');
+        }
+      }
+
     } catch (error) {
       console.error('❌ Failed to load tours:', error);
-      setToursError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
-
-      // Show alert to user
-      Alert.alert(
-        'Error Loading Tours',
-        'Unable to load tours. Please check your internet connection and try again.',
-        [
-          { text: 'Retry', onPress: loadTours },
-          { text: 'Cancel' }
-        ]
-      );
+      
+      // If we have any offline tours, use them as last resort
+      if (offlineTours.length > 0) {
+        console.log('📱 Using offline tours as error fallback');
+        setTours(offlineTours.map(content => ({
+          ...content.tourData,
+          isDownloaded: true
+        })));
+        setDataSource('offline');
+        setToursError(null); // Clear error since we have fallback data
+      } else {
+        setToursError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
+        
+        // Show alert only if this isn't a silent refresh
+        if (!refreshing) {
+          Alert.alert(
+            'Unable to Load Tours',
+            isOnline 
+              ? 'Unable to load tours. Please check your internet connection and try again.'
+              : 'No internet connection and no offline tours available. Please connect to the internet to download tours.',
+            [
+              { text: 'Retry', onPress: loadTours },
+              { text: 'Cancel' }
+            ]
+          );
+        }
+      }
     } finally {
       setIsLoadingTours(false);
     }
   };
 
-  // NEW: Pull to refresh function
+  // Helper function to merge online and offline tour data
+  const mergeToursData = (onlineTours: Tour[], offlineTours: OfflineContent[]): Tour[] => {
+    const mergedTours: Tour[] = [];
+    const offlineIds = new Set(offlineTours.map(ot => ot.tourId));
+    
+    // Add online tours, marking downloaded ones
+    onlineTours.forEach(tour => {
+      mergedTours.push({
+        ...tour,
+        isDownloaded: offlineIds.has(tour.id)
+      });
+    });
+    
+    // Add any offline tours that aren't in the online list
+    offlineTours.forEach(offlineContent => {
+      if (!mergedTours.find(t => t.id === offlineContent.tourId)) {
+        mergedTours.push({
+          ...offlineContent.tourData,
+          isDownloaded: true
+        });
+      }
+    });
+    
+    return mergedTours;
+  };
+
+  // Pull to refresh function
   const onRefresh = async () => {
     setRefreshing(true);
     await loadTours();
@@ -91,8 +207,63 @@ export default function ToursScreen() {
     return tours.filter((tour) => hasPurchased(tour.id)).length;
   };
 
-  // UPDATED: Loading state
-  if (isLoadingPurchases || (isLoadingTours && !refreshing)) {
+  // Safe rendering helpers
+  const renderUserName = () => {
+    const name = user?.user_metadata?.full_name || 'Explorer';
+    return typeof name === 'string' ? name : 'Explorer';
+  };
+
+  const renderTourTitle = (title: string | undefined) => {
+    return typeof title === 'string' ? title : 'Untitled Tour';
+  };
+
+  const renderTourDescription = (description: string | undefined) => {
+    return typeof description === 'string' ? description : 'No description available';
+  };
+
+  const renderTourDuration = (duration: string | undefined) => {
+    return typeof duration === 'string' ? duration : 'N/A';
+  };
+
+  const renderTourDistance = (distance: string | undefined) => {
+    return typeof distance === 'string' ? distance : 'N/A';
+  };
+
+  const renderTourPrice = (price: number | string | undefined) => {
+    if (typeof price === 'number') return `$${price}`;
+    if (typeof price === 'string') return price.startsWith('$') ? price : `$${price}`;
+    return '$0';
+  };
+
+  const renderStopsCount = (stops: any[] | undefined) => {
+    const count = Array.isArray(stops) ? stops.length : 0;
+    return `${count} stops`;
+  };
+
+  // Render data source indicator
+  const renderDataSourceIndicator = () => {
+    if (dataSource === 'offline') {
+      return (
+        <View style={styles.dataSourceIndicator}>
+          <Ionicons name="cloud-offline" size={16} color="#FF9800" />
+          <Text style={styles.dataSourceText}>Offline Mode</Text>
+        </View>
+      );
+    } else if (dataSource === 'mixed') {
+     /*setTimeout(() => {
+       return (
+        <View style={styles.dataSourceIndicator}>
+          <Ionicons name="cloud-done" size={16} color="#4CAF50" />
+          <Text style={styles.dataSourceText}>Online + Offline</Text>
+        </View>
+      );
+     }, 2000);*/
+    }
+    return null;
+  };
+
+  // Loading state
+  if (isLoadingPurchases || (isLoadingTours && !refreshing && tours.length === 0)) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -100,28 +271,46 @@ export default function ToursScreen() {
           <Text style={styles.loadingText}>
             {isLoadingTours ? 'Loading tours...' : 'Loading your tours...'}
           </Text>
+          {!isOnline && (
+            <Text style={styles.offlineHint}>
+              📱 Checking for offline tours...
+            </Text>
+          )}
         </View>
       </SafeAreaView>
     );
   }
 
-  // NEW: Error state
-  if (toursError && !refreshing) {
+  // Error state (only show if no tours available at all)
+  if (toursError && !refreshing && tours.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
-          <Ionicons name="warning-outline" size={64} color="#F44336" />
-          <Text style={styles.errorTitle}>Unable to Load Tours</Text>
-          <Text style={styles.errorText}>{toursError}</Text>
+          <Ionicons 
+            name={isOnline ? "warning-outline" : "cloud-offline-outline"} 
+            size={64} 
+            color="#F44336" 
+          />
+          <Text style={styles.errorTitle}>
+            {isOnline ? 'Unable to Load Tours' : 'No Offline Tours'}
+          </Text>
+          <Text style={styles.errorText}>
+            {isOnline 
+              ? toursError 
+              : 'No internet connection and no tours downloaded for offline use.'
+            }
+          </Text>
           <TouchableOpacity style={styles.retryButton} onPress={loadTours}>
-            <Text style={styles.retryButtonText}>Try Again</Text>
+            <Text style={styles.retryButtonText}>
+              {isOnline ? 'Try Again' : 'Check Again'}
+            </Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // NEW: Empty state
+  // Empty state (no tours found but no error)
   if (tours.length === 0 && !isLoadingTours) {
     return (
       <SafeAreaView style={styles.container}>
@@ -133,7 +322,12 @@ export default function ToursScreen() {
           <View style={styles.emptyContainer}>
             <Ionicons name="map-outline" size={64} color="#666" />
             <Text style={styles.emptyTitle}>No Tours Available</Text>
-            <Text style={styles.emptyText}>Check back later for new tours!</Text>
+            <Text style={styles.emptyText}>
+              {isOnline 
+                ? 'Check back later for new tours!' 
+                : 'Connect to the internet to browse and download tours.'
+              }
+            </Text>
             <TouchableOpacity style={styles.retryButton} onPress={loadTours}>
               <Text style={styles.retryButtonText}>Refresh</Text>
             </TouchableOpacity>
@@ -151,22 +345,43 @@ export default function ToursScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {/* Network Status Indicator */}
+        {renderDataSourceIndicator()}
+
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeText}>
-            Welcome back, {user?.user_metadata?.full_name || 'Explorer'}! 👋
+            Welcome back, {renderUserName()}! 👋
           </Text>
           <Text style={styles.welcomeSubtext}>
-            Discover amazing audio tours and local experiences
+            {isOnline 
+              ? 'Discover amazing audio tours and local experiences'
+              : 'Enjoy your downloaded tours offline'
+            }
           </Text>
         </View>
 
-        {/* Featured Tours */}
+        {/* Tours Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Featured Tours</Text>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {dataSource === 'offline' ? 'Downloaded Tours' : 'Featured Tours'}
+            </Text>
+            {tours.length > 0 && (
+              <Text style={styles.tourCount}>
+                {tours.length} tour{tours.length !== 1 ? 's' : ''}
+              </Text>
+            )}
+          </View>
 
           {tours.map((tour) => {
+            if (!tour || !tour.id) {
+              console.warn('❌ Invalid tour data:', tour);
+              return null;
+            }
+
             const isPurchased = hasPurchased(tour.id);
+            const isDownloaded = isTourOffline(tour.id);
 
             return (
               <TouchableOpacity
@@ -178,30 +393,34 @@ export default function ToursScreen() {
                 {/* Tour Image */}
                 <View style={styles.imageContainer}>
                   <Image
-                    source={getImageSource(tour.image)} // Use the smart image source function
+                    source={getImageSource(tour.image)}
                     style={styles.tourImage}
                     resizeMode="cover"
                     onError={(e) => {
                       console.log('❌ Image load error for tour:', tour.id, e.nativeEvent.error);
-                      console.log('❌ Failed image source:', tour.image);
                     }}
                     onLoad={() => {
                       console.log('✅ Image loaded for tour:', tour.id);
                     }}
                   />
                   <View style={styles.imageOverlay}>
+                    {/* Download Status */}
+                    {isDownloaded && (
+                      <View style={styles.downloadedTag}>
+                        <Ionicons name="download" size={16} color="#fff" />
+                        <Text style={styles.downloadedText}>Offline</Text>
+                      </View>
+                    )}
+                    
+                    {/* Purchase Status / Price */}
                     {isPurchased ? (
-                      <View style={styles.purchasedTag}>
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={16}
-                          color="#fff"
-                        />
+                      <View style={[styles.purchasedTag, isDownloaded && { marginTop: 8 }]}>
+                        <Ionicons name="checkmark-circle" size={16} color="#fff" />
                         <Text style={styles.purchasedText}>Owned</Text>
                       </View>
                     ) : (
-                      <View style={styles.priceTag}>
-                        <Text style={styles.priceText}>${tour.price}</Text>
+                      <View style={[styles.priceTag, isDownloaded && { marginTop: 8 }]}>
+                        <Text style={styles.priceText}>{renderTourPrice(tour.price)}</Text>
                       </View>
                     )}
                   </View>
@@ -209,29 +428,25 @@ export default function ToursScreen() {
 
                 {/* Tour Info */}
                 <View style={styles.tourInfo}>
-                  <Text style={styles.tourTitle}>{tour.title}</Text>
+                  <Text style={styles.tourTitle}>{renderTourTitle(tour.title)}</Text>
                   <Text style={styles.tourDescription} numberOfLines={2}>
-                    {tour.description}
+                    {renderTourDescription(tour.description)}
                   </Text>
 
                   {/* Tour Stats */}
                   <View style={styles.tourStats}>
                     <View style={styles.statItem}>
                       <Ionicons name="time-outline" size={16} color="#666" />
-                      <Text style={styles.statText}>{tour.duration}</Text>
+                      <Text style={styles.statText}>{renderTourDuration(tour.duration)}</Text>
                     </View>
                     <View style={styles.statItem}>
-                      <Ionicons
-                        name="location-outline"
-                        size={16}
-                        color="#666"
-                      />
-                      <Text style={styles.statText}>{tour.distance}</Text>
+                      <Ionicons name="location-outline" size={16} color="#666" />
+                      <Text style={styles.statText}>{renderTourDistance(tour.distance)}</Text>
                     </View>
                     <View style={styles.statItem}>
                       <Ionicons name="headset-outline" size={16} color="#666" />
                       <Text style={styles.statText}>
-                        {tour.stops.length} stops
+                        {renderStopsCount(tour.stops)}
                       </Text>
                     </View>
                   </View>
@@ -240,23 +455,38 @@ export default function ToursScreen() {
                   <View style={styles.actionButtons}>
                     {isPurchased ? (
                       <TouchableOpacity
-                        style={styles.playButton}
+                        style={[
+                          styles.playButton,
+                          !isOnline && !isDownloaded && styles.disabledButton
+                        ]}
                         onPress={() => handlePlayTour(tour.id)}
+                        disabled={!isOnline && !isDownloaded}
                       >
                         <Ionicons name="play" size={20} color="#fff" />
-                        <Text style={styles.playButtonText}>Play Tour</Text>
+                        <Text style={styles.playButtonText}>
+                          {!isOnline && !isDownloaded ? 'Offline' : 'Play Tour'}
+                        </Text>
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
-                        style={styles.purchaseButton}
+                        style={[
+                          styles.purchaseButton,
+                          !isOnline && styles.disabledButton
+                        ]}
                         onPress={() => handleTourPress(tour.id)}
+                        disabled={!isOnline}
                       >
                         <Ionicons
                           name="card-outline"
                           size={20}
-                          color="#5CC4C4"
+                          color={isOnline ? "#5CC4C4" : "#999"}
                         />
-                        <Text style={styles.purchaseButtonText}>Purchase</Text>
+                        <Text style={[
+                          styles.purchaseButtonText,
+                          !isOnline && styles.disabledText
+                        ]}>
+                          {isOnline ? 'Purchase' : 'Need Internet'}
+                        </Text>
                       </TouchableOpacity>
                     )}
 
@@ -293,10 +523,19 @@ export default function ToursScreen() {
 
             <View style={styles.statCard}>
               <Ionicons name="location" size={32} color="#5CC4C4" />
-              <Text style={styles.statNumber}>{totalVisitedPlaces}</Text> {/* Changed from 0 */}
+              <Text style={styles.statNumber}>{totalVisitedPlaces || 0}</Text>
               <Text style={styles.statLabel}>Places Visited</Text>
             </View>
           </View>
+
+          {/* Storage Usage (if any offline content) 
+          {offlineTours.length > 0 && (
+            <View style={styles.storageInfo}>
+              <Text style={styles.storageText}>
+                💾 Offline storage: {formatStorageSize(totalStorageUsed)}
+              </Text>
+            </View>
+          )}*/}
         </View>
 
         {/* Bottom Padding */}
@@ -306,7 +545,7 @@ export default function ToursScreen() {
   );
 }
 
-// UPDATED: Styles with new error and empty states
+// Enhanced styles with new offline features
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -324,7 +563,30 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
-  // NEW: Error state styles
+  offlineHint: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#FF9800',
+    textAlign: 'center',
+  },
+  // Data source indicator
+  dataSourceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 20,
+  },
+  dataSourceText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#FF9800',
+    fontWeight: '600',
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -344,7 +606,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
   },
-  // NEW: Empty state styles
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -395,11 +656,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 24,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
   sectionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 16,
+  },
+  tourCount: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   tourCard: {
     backgroundColor: '#fff',
@@ -423,6 +694,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 12,
     right: 12,
+  },
+  downloadedTag: {
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  downloadedText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 4,
   },
   priceTag: {
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
@@ -520,6 +805,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
+  disabledButton: {
+    backgroundColor: '#E0E0E0',
+    borderColor: '#E0E0E0',
+  },
+  disabledText: {
+    color: '#999',
+  },
   detailsButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -562,6 +854,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     textAlign: 'center',
+  },
+  storageInfo: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  storageText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   bottomPadding: {
     height: 20,

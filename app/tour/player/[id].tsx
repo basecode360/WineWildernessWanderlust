@@ -20,10 +20,8 @@ import MapView, { Marker } from 'react-native-maps';
 import { useOffline } from '../../../contexts/OfflineContext';
 import { useProgress } from '../../../contexts/ProgressContext';
 // FIXED: Import from TourServices (correct name)
-import { calculateDistance, getImageSource, getTourById } from '../../../services/tourServices';
+import { calculateDistance } from '../../../services/tourServices';
 import { AudioState, LocationData, Tour, TourStop } from '../../../types/tour';
-import { getAudioAsset } from '../../../utils/audioAssets';
-import { ERROR_MESSAGES } from '../../../utils/constants';
 
 const { width: screenWidth } = Dimensions.get('window');
 const PROXIMITY_THRESHOLD = 100; // meters
@@ -31,17 +29,17 @@ const PROXIMITY_THRESHOLD = 100; // meters
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { markStopCompleted } = useProgress(); // Add this line
-
-
+  const {
+    getOfflineTour,
+    getOfflineAudioPath,
+    getOfflineImagePath,
+    isOnline
+  } = useOffline();
   // CHANGED: Dynamic tour loading instead of static
   const [tour, setTour] = useState<Tour | null>(null);
   const [isLoadingTour, setIsLoadingTour] = useState(true);
   const [tourError, setTourError] = useState<string | null>(null);
 
-  const {
-    isTourOffline,
-    getOfflineAudioPath
-  } = useOffline();
 
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(
     null
@@ -75,27 +73,26 @@ export default function TourPlayerScreen() {
     try {
       setIsLoadingTour(true);
       setTourError(null);
-      console.log(`🔄 Loading tour ${tourId} for audio player...`);
+      console.log(`📱 STRICT OFFLINE: Loading tour ${tourId}...`);
 
-      const tourData = await getTourById(tourId);
-      setTour(tourData);
+      const offlineTour = getOfflineTour(tourId);
 
-      if (tourData) {
-        console.log(`✅ Tour loaded for player: ${tourData.title} with ${tourData.stops.length} stops`);
+      if (offlineTour) {
+        setTour(offlineTour.tourData);
+        console.log(`✅ Offline tour loaded: ${offlineTour.tourData.title} with ${offlineTour.tourData.stops.length} stops`);
       } else {
-        console.log(`⚠️ Tour ${tourId} not found`);
-        setTourError('Tour not found');
+        console.log(`❌ Tour ${tourId} not available offline`);
+        setTourError('This tour is not downloaded for offline use');
       }
     } catch (error) {
-      console.error('❌ Failed to load tour for player:', error);
-      setTourError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
+      console.error('❌ Failed to load offline tour:', error);
+      setTourError('Failed to load offline tour');
     } finally {
       setIsLoadingTour(false);
     }
   };
 
   useEffect(() => {
-    checkOfflineMode();
     requestLocationPermission();
     return () => {
       if (locationSubscription.current) {
@@ -254,8 +251,9 @@ export default function TourPlayerScreen() {
   };
 
   const triggerAudioForStop = async (stop: TourStop, index: number) => {
+    if (!tour) return;
+
     try {
-      // Initialize audio mode first
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         staysActiveInBackground: true,
@@ -264,127 +262,56 @@ export default function TourPlayerScreen() {
         playThroughEarpieceAndroid: false,
       });
 
-      // Stop current audio if playing
       if (audioRef.current) {
         await audioRef.current.unloadAsync();
         audioRef.current = null;
       }
 
-      let audioSource;
+      console.log(`📱 STRICT OFFLINE: Loading audio for stop: ${stop.title}`);
 
-      if (isOfflineMode && tour) {
-        // Try to get offline audio path
-        const offlineAudioPath = await getOfflineAudioPath(tour.id, stop.id);
+      const offlineAudioPath = await getOfflineAudioPath(tour.id, stop.id);
 
-        if (offlineAudioPath && offlineAudioPath !== 'BUNDLED_AUDIO') {
-          // Check if the file actually exists and is accessible
-          try {
-            // Create new Audio.Sound and load with file URI
-            const { sound } = await Audio.Sound.createAsync(
-              { uri: offlineAudioPath },
-              { shouldPlay: false, volume: 1.0 }
-            );
+      if (offlineAudioPath) {
+        console.log(`✅ Found offline audio: ${offlineAudioPath}`);
 
-            // Test if the sound loaded successfully
-            const status = await sound.getStatusAsync();
-            if (status.isLoaded) {
-              audioRef.current = sound;
-              setupAudioPlaybackListener(sound, stop.id);
-              audioSource = 'DOWNLOADED_FILE'; // Flag for tracking
-            } else {
-              await sound.unloadAsync();
-              audioSource = getAudioAsset(stop.audio);
-            }
-          } catch (downloadError) {
-            audioSource = getAudioAsset(stop.audio);
-          }
-        } else if (offlineAudioPath === 'BUNDLED_AUDIO') {
-          // Use bundled audio asset
-          audioSource = getAudioAsset(stop.audio);
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: `file://${offlineAudioPath}` },
+          { shouldPlay: false, volume: 1.0 }
+        );
 
-          if (!audioSource) {
-            // Try with different audio file extensions if needed
-            const audioAlternatives = [
-              stop.audio,
-              stop.audio.replace('.wav', '.mp3'),
-              stop.audio.replace('.mp3', '.wav'),
-            ];
-
-            for (const altAudio of audioAlternatives) {
-              const altSource = getAudioAsset(altAudio);
-              if (altSource) {
-                audioSource = altSource;
-                break;
-              }
-            }
-          }
-        } else {
-          audioSource = getAudioAsset(stop.audio);
-        }
-      } else {
-        // Online mode - use bundled audio asset
-        audioSource = getAudioAsset(stop.audio);
-      }
-
-      // If we don't have a sound object yet, create one
-      if (!audioRef.current) {
-        if (!audioSource || audioSource === 'DOWNLOADED_FILE') {
-          Alert.alert('Audio Error', `Audio file not available: ${stop.audio}`);
-          return;
-        }
-
-        const { sound } = await Audio.Sound.createAsync(audioSource, {
-          shouldPlay: false,
-          volume: 1.0,
-          isLooping: false,
-        });
-
-        audioRef.current = sound;
-        setupAudioPlaybackListener(sound, stop.id);
-      }
-
-      // Start playing
-      await audioRef.current.playAsync();
-
-      setAudioState({
-        isPlaying: true,
-        currentStopId: stop.id,
-        position: 0,
-        duration: 0,
-      });
-
-      setCurrentStopIndex(index);
-      stop.isPlayed = true;
-
-      const sourceType = audioSource === 'DOWNLOADED_FILE' ? 'Downloaded' : 'Bundled';
-      const modeText = isOfflineMode ? ` (Offline - ${sourceType})` : ` (Online - ${sourceType})`;
-      Alert.alert('🎧 Audio Started', `Now playing: ${stop.title}${modeText}`, [
-        { text: 'OK' },
-      ]);
-
-    } catch (error) {
-      Alert.alert('Audio Error', `Could not play audio: ${error.message}\n\nTrying bundled fallback...`);
-
-      // Try bundled fallback as last resort
-      try {
-        const fallbackSource = getAudioAsset(stop.audio);
-        if (fallbackSource) {
-          const { sound } = await Audio.Sound.createAsync(fallbackSource, {
-            shouldPlay: true,
-            volume: 1.0,
-          });
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) {
           audioRef.current = sound;
           setupAudioPlaybackListener(sound, stop.id);
+
+          await sound.playAsync();
+
           setAudioState({
             isPlaying: true,
             currentStopId: stop.id,
             position: 0,
             duration: 0,
           });
+
+          setCurrentStopIndex(index);
+          stop.isPlayed = true;
+
+          Alert.alert('🎧 Audio Started', `Now playing: ${stop.title} (Offline)`, [
+            { text: 'OK' },
+          ]);
+        } else {
+          throw new Error('Offline audio file not valid');
         }
-      } catch (fallbackError) {
-        console.error('Fallback also failed:', fallbackError);
+      } else {
+        throw new Error('Audio not available offline');
       }
+
+    } catch (error: any) {
+      console.error('❌ Offline audio error:', error);
+      Alert.alert(
+        'Audio Not Available',
+        `This audio is not downloaded for offline use: ${stop.title}`
+      );
     }
   };
 
@@ -456,84 +383,56 @@ export default function TourPlayerScreen() {
     setShowMap(false);
   };
 
-  const renderStopImage = (stop: TourStop) => {
-    console.log(`🖼️ TourPlayer: Rendering stop image for "${stop.title}"`);
-    console.log(`🖼️ TourPlayer: Stop image path:`, stop.image || 'NO IMAGE');
+  const renderStopImage = async (stop: TourStop) => {
+    if (!stop.image || !tour) return null;
 
-    if (!stop.image) {
-      console.log(`⚠️ TourPlayer: No image for stop "${stop.title}"`);
-      return null;
-    }
+    try {
+      const offlineImagePath = await getOfflineImagePath(tour.id, stop.image);
 
-    // Use the new getImageSource function
-    const imageSource = getImageSource(stop.image);
-    console.log(`🖼️ TourPlayer: Resolved image source:`, imageSource);
-
-    if (!imageSource) {
-      console.log(`❌ TourPlayer: No image source resolved for "${stop.title}"`);
-      return null;
+      if (offlineImagePath) {
+        return (
+          <Image
+            source={{ uri: `file://${offlineImagePath}` }}
+            style={styles.stopThumbnail}
+            resizeMode="cover"
+            onLoad={() => console.log(`✅ Offline stop image loaded: ${stop.title}`)}
+            onError={(error) => console.error(`❌ Offline stop image error: ${stop.title}`, error.nativeEvent)}
+          />
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to load offline stop image:', error);
     }
 
     return (
-      <Image
-        source={imageSource} // This will be either require() for local or {uri} for remote
-        style={styles.stopThumbnail}
-        resizeMode="cover"
-        onLoad={() => {
-          console.log(`✅ TourPlayer: Stop image loaded for "${stop.title}"`);
-        }}
-        onError={(error) => {
-          console.error(`❌ TourPlayer: Failed to load stop image for "${stop.title}":`, error.nativeEvent);
-          console.error(`❌ TourPlayer: Failed source:`, imageSource);
-        }}
-        onLoadStart={() => {
-          console.log(`🔄 TourPlayer: Started loading stop image for "${stop.title}"`);
-        }}
-        onLoadEnd={() => {
-          console.log(`🏁 TourPlayer: Finished loading stop image for "${stop.title}"`);
-        }}
-      />
+      <View style={[styles.stopThumbnail, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+        <Ionicons name="image-outline" size={20} color="#ccc" />
+      </View>
     );
   };
 
-  const renderCurrentStopImage = (stop: TourStop) => {
-    console.log(`🖼️ TourPlayer: Rendering current stop image for "${stop?.title}"`);
-    console.log(`🖼️ TourPlayer: Current stop image path:`, stop?.image || 'NO IMAGE');
+  const renderCurrentStopImage = async (stop: TourStop) => {
+    if (!stop?.image || !tour) return null;
 
-    if (!stop?.image) {
-      console.log(`⚠️ TourPlayer: No image for current stop "${stop?.title}"`);
-      return null;
+    try {
+      const offlineImagePath = await getOfflineImagePath(tour.id, stop.image);
+
+      if (offlineImagePath) {
+        return (
+          <Image
+            source={{ uri: `file://${offlineImagePath}` }}
+            style={styles.currentStopImage}
+            resizeMode="cover"
+            onLoad={() => console.log(`✅ Offline current stop image loaded: ${stop.title}`)}
+            onError={(error) => console.error(`❌ Offline current stop image error: ${stop.title}`, error.nativeEvent)}
+          />
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to load offline current stop image:', error);
     }
 
-    // Use the new getImageSource function
-    const imageSource = getImageSource(stop.image);
-    console.log(`🖼️ TourPlayer: Resolved current stop image source:`, imageSource);
-
-    if (!imageSource) {
-      console.log(`❌ TourPlayer: No image source resolved for current stop "${stop.title}"`);
-      return null;
-    }
-
-    return (
-      <Image
-        source={imageSource} // This will be either require() for local or {uri} for remote
-        style={styles.currentStopImage}
-        resizeMode="cover"
-        onLoad={() => {
-          console.log(`✅ TourPlayer: Current stop image loaded for "${stop.title}"`);
-        }}
-        onError={(error) => {
-          console.error(`❌ TourPlayer: Failed to load current stop image for "${stop.title}":`, error.nativeEvent);
-          console.error(`❌ TourPlayer: Failed source:`, imageSource);
-        }}
-        onLoadStart={() => {
-          console.log(`🔄 TourPlayer: Started loading current stop image for "${stop.title}"`);
-        }}
-        onLoadEnd={() => {
-          console.log(`🏁 TourPlayer: Finished loading current stop image for "${stop.title}"`);
-        }}
-      />
-    );
+    return null;
   };
 
   // Enhanced skip functions that handle audio state properly
@@ -556,7 +455,7 @@ export default function TourPlayerScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#5CC4C4" />
-        <Text style={styles.loadingText}>Loading tour...</Text>
+        <Text style={styles.loadingText}>Loading offline tour...</Text>
       </View>
     );
   }
@@ -565,10 +464,13 @@ export default function TourPlayerScreen() {
   if (tourError || !tour) {
     return (
       <View style={styles.errorContainer}>
-        <Ionicons name="warning-outline" size={64} color="#F44336" />
-        <Text style={styles.errorTitle}>Unable to Load Tour</Text>
+        <Ionicons name="cloud-offline-outline" size={64} color="#FF9800" />
+        <Text style={styles.errorTitle}>Tour Not Available Offline</Text>
         <Text style={styles.errorText}>
-          {tourError || 'Tour not found'}
+          {tourError || 'This tour is not downloaded for offline use'}
+        </Text>
+        <Text style={styles.errorText}>
+          Connect to the internet and download this tour to play it offline.
         </Text>
         <TouchableOpacity
           style={styles.retryButton}

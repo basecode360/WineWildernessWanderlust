@@ -1,7 +1,7 @@
-// app/offline-downloads.tsx - Offline Downloads Management Screen
+// app/offline-downloads.tsx - Strict Offline Downloads Management (YouTube Premium style)
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -16,18 +16,27 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOffline } from '../contexts/OfflineContext';
-import { getImageSource } from '../services/tourServices';
 
-// OfflineContent type is already defined in OfflineContext
+// Enhanced OfflineContent interface
 interface OfflineContent {
   tourId: string;
-  tourData: any;
+  tourData: {
+    id: string;
+    title: string;
+    description: string;
+    duration: string;
+    distance: string;
+    price: number;
+    image?: string;
+    stops: any[];
+  };
   downloadedAt: string;
   size: number;
 }
 
 export default function OfflineDownloadsScreen() {
   const [refreshing, setRefreshing] = useState(false);
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
 
   const insets = useSafeAreaInsets();
 
@@ -39,26 +48,39 @@ export default function OfflineDownloadsScreen() {
     refreshOfflineContent,
     clearAllOfflineContent,
     formatStorageSize,
+    isOnline
   } = useOffline();
 
-  // DEBUG LOGS
-  console.log('🧪 DEBUG Offline Downloads Screen:');
-  console.log('📊 offlineTours:', offlineTours);
-  console.log('📊 offlineTours.length:', offlineTours.length);
+  // DEBUG LOGS for offline mode
+  console.log('📱 STRICT OFFLINE Downloads Screen:');
+  console.log('📊 offlineTours:', offlineTours.length);
   console.log('📊 totalStorageUsed:', totalStorageUsed);
-  console.log('📊 typeof totalStorageUsed:', typeof totalStorageUsed);
-  console.log('📊 isLoadingOffline:', isLoadingOffline);
-  
-  // Test the formatStorageSize function directly
-  console.log('🧪 Testing formatStorageSize function:');
-  console.log('📊 formatStorageSize(0):', formatStorageSize(0));
-  console.log('📊 formatStorageSize(1024):', formatStorageSize(1024));
-  console.log('📊 formatStorageSize(totalStorageUsed):', formatStorageSize(totalStorageUsed));
+  console.log('📊 isOnline:', isOnline);
+  console.log('📊 Storage formatted:', formatStorageSize(totalStorageUsed));
+
+  // Check storage usage and show warnings
+  useEffect(() => {
+    checkStorageUsage();
+  }, [totalStorageUsed]);
+
+  const checkStorageUsage = () => {
+    const usageInMB = totalStorageUsed / (1024 * 1024);
+    
+    if (usageInMB > 500) { // Over 500MB
+      setStorageWarning('High storage usage detected');
+    } else if (usageInMB > 200) { // Over 200MB
+      setStorageWarning('Consider managing storage');
+    } else {
+      setStorageWarning(null);
+    }
+  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await refreshOfflineContent();
+    } catch (error) {
+      Alert.alert('Refresh Error', 'Failed to refresh offline content');
     } finally {
       setRefreshing(false);
     }
@@ -66,8 +88,8 @@ export default function OfflineDownloadsScreen() {
 
   const handleRemoveTour = (tourId: string, tourTitle: string) => {
     Alert.alert(
-      'Remove Offline Content',
-      `Are you sure you want to remove "${tourTitle}" from offline storage? You can download it again later.`,
+      'Remove Downloaded Tour',
+      `Remove "${tourTitle}" from your device? You'll need an internet connection to download it again.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -76,12 +98,9 @@ export default function OfflineDownloadsScreen() {
           onPress: async () => {
             try {
               await removeTour(tourId);
-              Alert.alert('Success', 'Tour removed from offline storage.');
+              Alert.alert('Removed', 'Tour removed from your device.');
             } catch (error) {
-              Alert.alert(
-                'Error',
-                'Failed to remove tour from offline storage.'
-              );
+              Alert.alert('Error', 'Failed to remove tour. Please try again.');
             }
           },
         },
@@ -91,28 +110,24 @@ export default function OfflineDownloadsScreen() {
 
   const handleClearAll = () => {
     if (offlineTours.length === 0) {
-      Alert.alert('No Content', 'There are no offline tours to remove.');
+      Alert.alert('No Content', 'No downloaded tours to remove.');
       return;
     }
 
     Alert.alert(
-      'Clear All Offline Content',
-      `This will remove all ${
-        offlineTours.length
-      } offline tours and free up ${formatStorageSize(
-        totalStorageUsed
-      )} of storage. You can download them again later.`,
+      'Remove All Downloads',
+      `This will remove all ${offlineTours.length} downloaded tours and free up ${formatStorageSize(totalStorageUsed)} of storage. You'll need internet to download them again.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear All',
+          text: 'Remove All',
           style: 'destructive',
           onPress: async () => {
             try {
               await clearAllOfflineContent();
-              Alert.alert('Success', 'All offline content has been removed.');
+              Alert.alert('Success', 'All downloaded content has been removed.');
             } catch (error) {
-              Alert.alert('Error', 'Failed to clear offline content.');
+              Alert.alert('Error', 'Failed to remove content. Please try again.');
             }
           },
         },
@@ -121,109 +136,174 @@ export default function OfflineDownloadsScreen() {
   };
 
   const handleTourPress = (tourId: string) => {
+    // In strict offline mode, only downloaded tours are accessible
     router.push(`/tour/${tourId}`);
   };
 
   const handlePlayTour = (tourId: string) => {
+    // Direct play from offline storage
     router.push(`/tour/player/${tourId}`);
   };
 
   const formatDownloadDate = (dateString: string) => {
     const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 1) return 'Downloaded yesterday';
+    if (diffDays < 7) return `Downloaded ${diffDays} days ago`;
+    if (diffDays < 30) return `Downloaded ${Math.ceil(diffDays / 7)} weeks ago`;
+    
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
     });
   };
 
-  const renderOfflineTour = ({ item }: { item: OfflineContent }) => (
-    <TouchableOpacity
-      style={styles.tourCard}
-      onPress={() => handleTourPress(item.tourId)}
-      activeOpacity={0.8}
-    >
-      <View style={styles.tourImageContainer}>
-        {item.tourData.image ? (
-          <Image
-            source={getImageSource(item.tourData.image)}
-            style={styles.tourImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={styles.imagePlaceholder}>
-            <Ionicons name="image-outline" size={32} color="#999" />
+  // Enhanced offline image resolver
+  const getOfflineImageSource = (tour: OfflineContent) => {
+    if (!tour.tourData.image) return null;
+
+    // For strict offline mode, only show downloaded images
+    try {
+      // This should be resolved from the offline tour's imageFiles
+      // For now, show placeholder since we're in strict offline mode
+      return null;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const renderOfflineTour = ({ item }: { item: OfflineContent }) => {
+    const imageSource = getOfflineImageSource(item);
+
+    return (
+      <TouchableOpacity
+        style={styles.tourCard}
+        onPress={() => handleTourPress(item.tourId)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.tourImageContainer}>
+          {imageSource ? (
+            <Image
+              source={imageSource}
+              style={styles.tourImage}
+              resizeMode="cover"
+              onError={() => console.warn('Failed to load offline tour image')}
+            />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <Ionicons name="download" size={32} color="#5CC4C4" />
+              <Text style={styles.placeholderText}>Downloaded</Text>
+            </View>
+          )}
+          
+          {/* Offline Status Badge */}
+          <View style={styles.offlineBadge}>
+            <Ionicons name="cloud-done" size={16} color="#fff" />
           </View>
-        )}
-        <View style={styles.offlineBadge}>
-          <Ionicons name="cloud-done" size={16} color="#fff" />
         </View>
-      </View>
 
-      <View style={styles.tourInfo}>
-        <Text style={styles.tourTitle} numberOfLines={1}>
-          {item.tourData.title}
-        </Text>
-        <Text style={styles.tourDescription} numberOfLines={2}>
-          {item.tourData.description}
-        </Text>
-
-        <View style={styles.tourMeta}>
-          <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={14} color="#666" />
-            <Text style={styles.metaText}>{item.tourData.duration}</Text>
-          </View>
-          <View style={styles.metaItem}>
-            <Ionicons name="location-outline" size={14} color="#666" />
-            <Text style={styles.metaText}>
-              {item.tourData.stops.length} stops
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.downloadInfo}>
-          <Text style={styles.downloadDate}>
-            Downloaded {formatDownloadDate(item.downloadedAt)}
+        <View style={styles.tourInfo}>
+          <Text style={styles.tourTitle} numberOfLines={1}>
+            {item.tourData.title}
           </Text>
-          <Text style={styles.fileSize}>{formatStorageSize(item.size)}</Text>
+          <Text style={styles.tourDescription} numberOfLines={2}>
+            {item.tourData.description}
+          </Text>
+
+          <View style={styles.tourMeta}>
+            <View style={styles.metaItem}>
+              <Ionicons name="time-outline" size={14} color="#666" />
+              <Text style={styles.metaText}>{item.tourData.duration}</Text>
+            </View>
+            <View style={styles.metaItem}>
+              <Ionicons name="location-outline" size={14} color="#666" />
+              <Text style={styles.metaText}>
+                {item.tourData.stops?.length || 0} stops
+              </Text>
+            </View>
+            <View style={styles.metaItem}>
+              <Ionicons name="phone-portrait-outline" size={14} color="#666" />
+              <Text style={styles.metaText}>Offline</Text>
+            </View>
+          </View>
+
+          <View style={styles.downloadInfo}>
+            <Text style={styles.downloadDate}>
+              {formatDownloadDate(item.downloadedAt)}
+            </Text>
+            <Text style={styles.fileSize}>{formatStorageSize(item.size)}</Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.tourActions}>
-        <TouchableOpacity
-          style={styles.playButton}
-          onPress={() => handlePlayTour(item.tourId)}
-        >
-          <Ionicons name="play" size={20} color="#4CAF50" />
-        </TouchableOpacity>
+        <View style={styles.tourActions}>
+          <TouchableOpacity
+            style={styles.playButton}
+            onPress={() => handlePlayTour(item.tourId)}
+          >
+            <Ionicons name="play-circle" size={28} color="#5CC4C4" />
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.removeButton}
-          onPress={() => handleRemoveTour(item.tourId, item.tourData.title)}
-        >
-          <Ionicons name="trash-outline" size={20} color="#ff4444" />
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  );
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => handleRemoveTour(item.tourId, item.tourData.title)}
+          >
+            <Ionicons name="trash-outline" size={20} color="#ff4444" />
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmptyState = () => (
     <View style={styles.emptyContainer}>
-      <Ionicons name="cloud-offline-outline" size={64} color="#ccc" />
-      <Text style={styles.emptyTitle}>No Offline Tours</Text>
+      <Ionicons name="download-outline" size={80} color="#ccc" />
+      <Text style={styles.emptyTitle}>No Downloaded Tours</Text>
       <Text style={styles.emptyDescription}>
-        Download tours to enjoy them offline without an internet connection.
+        Download tours when connected to the internet to enjoy them offline anytime.
       </Text>
-      <TouchableOpacity
-        style={styles.browseButton}
-        onPress={() => router.push('/(tabs)')}
-      >
-        <Text style={styles.browseButtonText}>Browse Tours</Text>
-      </TouchableOpacity>
+      <Text style={styles.emptyHint}>
+        💡 Downloaded tours appear here and work without internet
+      </Text>
+      
+      {/* Only show browse button if online */}
+      {isOnline && (
+        <TouchableOpacity
+          style={styles.browseButton}
+          onPress={() => router.push('/(tabs)')}
+        >
+          <Ionicons name="cloud-download-outline" size={20} color="#fff" />
+          <Text style={styles.browseButtonText}>Browse & Download</Text>
+        </TouchableOpacity>
+      )}
+      
+      {!isOnline && (
+        <View style={styles.offlineNotice}>
+          <Ionicons name="wifi-off" size={16} color="#FF9800" />
+          <Text style={styles.offlineNoticeText}>
+            Connect to internet to download tours
+          </Text>
+        </View>
+      )}
     </View>
   );
+
+  const renderStorageWarning = () => {
+    if (!storageWarning) return null;
+
+    return (
+      <View style={styles.warningContainer}>
+        <Ionicons name="warning-outline" size={16} color="#FF9800" />
+        <Text style={styles.warningText}>{storageWarning}</Text>
+        <TouchableOpacity onPress={handleClearAll}>
+          <Text style={styles.warningAction}>Manage</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -237,9 +317,18 @@ export default function OfflineDownloadsScreen() {
           >
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Offline Downloads</Text>
-          <View style={styles.headerRight} />
+          <Text style={styles.headerTitle}>Downloaded Tours</Text>
+          <View style={styles.connectionStatus}>
+            <Ionicons 
+              name={isOnline ? "wifi" : "wifi-off"} 
+              size={16} 
+              color={isOnline ? "#5CC4C4" : "#FF9800"} 
+            />
+          </View>
         </View>
+
+        {/* Storage Warning */}
+        {renderStorageWarning()}
 
         {/* Storage Summary */}
         <View style={styles.storageContainer}>
@@ -248,7 +337,7 @@ export default function OfflineDownloadsScreen() {
               <Ionicons name="download" size={24} color="#5CC4C4" />
               <View style={styles.storageText}>
                 <Text style={styles.storageNumber}>{offlineTours.length}</Text>
-                <Text style={styles.storageLabel}>Tours</Text>
+                <Text style={styles.storageLabel}>Downloaded</Text>
               </View>
             </View>
 
@@ -258,9 +347,17 @@ export default function OfflineDownloadsScreen() {
                 <Text style={styles.storageNumber}>
                   {formatStorageSize(totalStorageUsed)}
                 </Text>
-                <Text style={styles.storageLabel}>Used</Text>
+                <Text style={styles.storageLabel}>Storage Used</Text>
               </View>
             </View>
+
+            {offlineTours.length === 0 && (<View style={styles.storageItem}>
+              <Ionicons name="cloud-done" size={24} color="#5CC4C4" />
+              <View style={styles.storageText}>
+                <Text style={styles.storageNumber}>Offline</Text>
+                <Text style={styles.storageLabel}>Ready</Text>
+              </View>
+            </View>)}
           </View>
 
           {offlineTours.length > 0 && (
@@ -269,7 +366,7 @@ export default function OfflineDownloadsScreen() {
               onPress={handleClearAll}
             >
               <Ionicons name="trash-outline" size={16} color="#ff4444" />
-              <Text style={styles.clearAllText}>Clear All</Text>
+              <Text style={styles.clearAllText}>Remove All</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -319,8 +416,29 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
   },
-  headerRight: {
-    width: 40,
+  connectionStatus: {
+    padding: 8,
+  },
+  // NEW: Warning container
+  warningContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFE0B2',
+  },
+  warningText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#E65100',
+  },
+  warningAction: {
+    fontSize: 14,
+    color: '#FF9800',
+    fontWeight: '600',
   },
   storageContainer: {
     backgroundColor: '#fff',
@@ -337,18 +455,18 @@ const styles = StyleSheet.create({
   storageItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 32,
+    marginRight: 24,
   },
   storageText: {
-    marginLeft: 12,
+    marginLeft: 8,
   },
   storageNumber: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
   },
   storageLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
   },
   clearAllButton: {
@@ -359,6 +477,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ff4444',
+  
+    
   },
   clearAllText: {
     color: '#ff4444',
@@ -392,17 +512,23 @@ const styles = StyleSheet.create({
   imagePlaceholder: {
     width: 100,
     height: 100,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#E8F5E8',
     justifyContent: 'center',
     alignItems: 'center',
   },
+  placeholderText: {
+    fontSize: 10,
+    color: '#5CC4C4',
+    fontWeight: '600',
+    marginTop: 4,
+  },
   offlineBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: '#4CAF50',
-    borderRadius: 12,
-    padding: 4,
+    top: 6,
+    right: 6,
+    backgroundColor: '#5CC4C4',
+    borderRadius: 10,
+    padding: 3,
   },
   tourInfo: {
     flex: 1,
@@ -427,12 +553,12 @@ const styles = StyleSheet.create({
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 16,
+    marginRight: 12,
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#666',
-    marginLeft: 4,
+    marginLeft: 3,
   },
   downloadInfo: {
     flexDirection: 'row',
@@ -441,11 +567,12 @@ const styles = StyleSheet.create({
   },
   downloadDate: {
     fontSize: 11,
-    color: '#999',
+    color: '#5CC4C4',
+    fontWeight: '500',
   },
   fileSize: {
     fontSize: 11,
-    color: '#5CC4C4',
+    color: '#666',
     fontWeight: '600',
   },
   tourActions: {
@@ -454,11 +581,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   playButton: {
-    padding: 8,
+    padding: 6,
     marginBottom: 8,
   },
   removeButton: {
-    padding: 8,
+    padding: 6,
   },
   emptyContainer: {
     flex: 1,
@@ -479,6 +606,13 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     lineHeight: 20,
+    marginBottom: 8,
+  },
+  emptyHint: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    fontStyle: 'italic',
     marginBottom: 24,
   },
   browseButton: {
@@ -486,10 +620,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   browseButtonText: {
     color: '#fff',
     fontWeight: '600',
     fontSize: 16,
+    marginLeft: 8,
+  },
+  // NEW: Offline notice
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 16,
+  },
+  offlineNoticeText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: '#E65100',
+    fontWeight: '500',
   },
 });

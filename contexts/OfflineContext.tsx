@@ -1,5 +1,6 @@
-// contexts/OfflineContext.tsx - Updated for dynamic Supabase data
+// contexts/OfflineContext.tsx - Enhanced with proper offline functionality
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import {
   createContext,
   ReactNode,
@@ -34,6 +35,7 @@ interface OfflineContextType {
   isLoadingOffline: boolean;
   downloadProgress: Map<string, DownloadProgress>;
   totalStorageUsed: number;
+  isOnline: boolean; // NEW: Track network status
 
   // Methods
   isTourOffline: (tourId: string) => boolean;
@@ -50,6 +52,9 @@ interface OfflineContextType {
   ) => Promise<string | null>;
   refreshOfflineContent: () => Promise<void>;
   clearAllOfflineContent: () => Promise<void>;
+  
+  // NEW: Get offline tour data
+  getOfflineTour: (tourId: string) => OfflineContent | null;
 
   // Utilities
   formatStorageSize: (bytes: number) => string;
@@ -69,8 +74,19 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
     Map<string, DownloadProgress>
   >(new Map());
   const [totalStorageUsed, setTotalStorageUsed] = useState(0);
+  const [isOnline, setIsOnline] = useState(true); // NEW: Network status
 
   const { user } = useAuth();
+
+  // NEW: Monitor network connectivity
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      console.log(`🌐 Network status changed: ${state.isConnected ? 'Online' : 'Offline'}`);
+      setIsOnline(state.isConnected ?? false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // Load offline content when user signs in
   useEffect(() => {
@@ -84,122 +100,146 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
     }
   }, [user]);
 
-const loadOfflineContent = useCallback(async () => {
-  if (!user) {
-    return;
-  }
-
-  setIsLoadingOffline(true);
-
-  try {
-    const keys = await AsyncStorage.getAllKeys();
-    const offlineKeys = keys.filter(key => 
-      key.startsWith('tour_') && key.endsWith('_offline')
-    );
-    
-    console.log('🧪 DEBUG OfflineContext loadOfflineContent:');
-    console.log('📊 Found offline keys:', offlineKeys);
-    
-    const offlineContent: OfflineContent[] = [];
-    let totalSize = 0;
-
-    for (const key of offlineKeys) {
-      const tourId = key.replace('tour_', '').replace('_offline', '');
-      
-      try {
-        // Fetch tour data from Supabase using the new service
-        const tour = await getTourById(tourId);
-        
-        if (tour) {
-          const downloadDate = await AsyncStorage.getItem(`tour_${tourId}_download_date`);
-          
-          // Calculate estimated size based on tour content
-          let estimatedSize = 0;
-          
-          // Base tour data
-          estimatedSize += 50 * 1024; // 50KB for tour metadata
-          
-       // Helper function to parse duration string to minutes
-const parseDurationToMinutes = (duration: string): number => {
-  const lowerDuration = duration.toLowerCase();
-  
-  // Extract numbers from the string
-  const hoursMatch = lowerDuration.match(/(\d+)-?(\d+)?\s*hours?/);
-  const minutesMatch = lowerDuration.match(/(\d+)\s*minutes?/);
-  
-  let totalMinutes = 0;
-  
-  if (hoursMatch) {
-    // If it's a range like "3-4 hours", take the average
-    const hour1 = parseInt(hoursMatch[1]);
-    const hour2 = hoursMatch[2] ? parseInt(hoursMatch[2]) : hour1;
-    const avgHours = (hour1 + hour2) / 2;
-    totalMinutes += avgHours * 60;
-  }
-  
-  if (minutesMatch) {
-    totalMinutes += parseInt(minutesMatch[1]);
-  }
-  
-  // Default to 180 minutes (3 hours) if we can't parse
-  return totalMinutes || 180;
-};
-
-// Then use it in the calculation:
-tour.stops.forEach(stop => {
-  if (stop.audio) {
-    const durationMinutes = parseDurationToMinutes(tour.duration);
-    const minutesPerStop = durationMinutes / tour.stops.length;
-    const estimatedAudioSize = minutesPerStop * 60 * 1024; // 60KB per minute
-    estimatedSize += Math.max(estimatedAudioSize, 500 * 1024); // Minimum 500KB per audio
-  }
-});
-          
-          // Images
-          if (tour.image) {
-            estimatedSize += 200 * 1024; // 200KB for main tour image
-          }
-          
-          tour.stops.forEach(stop => {
-            if (stop.image) {
-              estimatedSize += 150 * 1024; // 150KB per stop image
-            }
-          });
-          
-          console.log(`📊 Tour "${tour.title}" estimated size:`, estimatedSize);
-          console.log(`📊 Tour duration:`, tour.duration);
-          console.log(`📊 Tour stops count:`, tour.stops.length);
-          
-          offlineContent.push({
-            tourId,
-            tourData: tour,
-            downloadedAt: downloadDate || new Date().toISOString(),
-            size: estimatedSize
-          });
-          
-          totalSize += estimatedSize;
-          console.log(`📊 Running total size:`, totalSize);
-        }
-      } catch (error) {
-        console.error(`❌ Error loading offline tour ${tourId}:`, error);
-      }
+  const loadOfflineContent = useCallback(async () => {
+    if (!user) {
+      return;
     }
 
-    console.log('📊 Final offlineContent:', offlineContent);
-    console.log('📊 Final totalSize:', totalSize);
-    console.log('📊 typeof totalSize:', typeof totalSize);
+    setIsLoadingOffline(true);
 
-    setOfflineTours(offlineContent);
-    setTotalStorageUsed(totalSize);
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const offlineKeys = keys.filter(key => 
+        key.startsWith('tour_') && key.endsWith('_offline')
+      );
+      
+      console.log('🧪 DEBUG OfflineContext loadOfflineContent:');
+      console.log('📊 Found offline keys:', offlineKeys);
+      
+      const offlineContent: OfflineContent[] = [];
+      let totalSize = 0;
 
-  } catch (error) {
-    console.error('❌ Error loading offline content:', error);
-    setOfflineTours([]);
-    setTotalStorageUsed(0);
-  } finally {
-    setIsLoadingOffline(false);
-  }
-}, [user]);
+      for (const key of offlineKeys) {
+        const tourId = key.replace('tour_', '').replace('_offline', '');
+        
+        try {
+          // First check if we have cached tour data
+          const cachedTourData = await AsyncStorage.getItem(`tour_${tourId}_data`);
+          let tour: Tour | null = null;
+          
+          if (cachedTourData) {
+            console.log(`📱 Found cached data for tour ${tourId}`);
+            tour = JSON.parse(cachedTourData);
+          } else if (isOnline) {
+            console.log(`🌐 Fetching fresh data for tour ${tourId} from Supabase`);
+            // Fetch tour data from Supabase using the new service
+            tour = await getTourById(tourId);
+            
+            // Cache the tour data for offline use
+            if (tour) {
+              await AsyncStorage.setItem(`tour_${tourId}_data`, JSON.stringify(tour));
+            }
+          } else {
+            console.log(`❌ No cached data and offline for tour ${tourId}`);
+            // Remove this tour from offline list if we can't load it
+            await AsyncStorage.removeItem(`tour_${tourId}_offline`);
+            continue;
+          }
+          
+          if (tour) {
+            const downloadDate = await AsyncStorage.getItem(`tour_${tourId}_download_date`);
+            
+            // Calculate estimated size based on tour content
+            let estimatedSize = 0;
+            
+            // Base tour data
+            estimatedSize += 50 * 1024; // 50KB for tour metadata
+            
+            // Helper function to parse duration string to minutes
+            const parseDurationToMinutes = (duration: string): number => {
+              const lowerDuration = duration.toLowerCase();
+              
+              // Extract numbers from the string
+              const hoursMatch = lowerDuration.match(/(\d+)-?(\d+)?\s*hours?/);
+              const minutesMatch = lowerDuration.match(/(\d+)\s*minutes?/);
+              
+              let totalMinutes = 0;
+              
+              if (hoursMatch) {
+                // If it's a range like "3-4 hours", take the average
+                const hour1 = parseInt(hoursMatch[1]);
+                const hour2 = hoursMatch[2] ? parseInt(hoursMatch[2]) : hour1;
+                const avgHours = (hour1 + hour2) / 2;
+                totalMinutes += avgHours * 60;
+              }
+              
+              if (minutesMatch) {
+                totalMinutes += parseInt(minutesMatch[1]);
+              }
+              
+              // Default to 180 minutes (3 hours) if we can't parse
+              return totalMinutes || 180;
+            };
+
+            // Audio files estimation
+            tour.stops.forEach(stop => {
+              if (stop.audio) {
+                const durationMinutes = parseDurationToMinutes(tour.duration);
+                const minutesPerStop = durationMinutes / tour.stops.length;
+                const estimatedAudioSize = minutesPerStop * 60 * 1024; // 60KB per minute
+                estimatedSize += Math.max(estimatedAudioSize, 500 * 1024); // Minimum 500KB per audio
+              }
+            });
+            
+            // Images
+            if (tour.image) {
+              estimatedSize += 200 * 1024; // 200KB for main tour image
+            }
+            
+            tour.stops.forEach(stop => {
+              if (stop.image) {
+                estimatedSize += 150 * 1024; // 150KB per stop image
+              }
+            });
+            
+            console.log(`📊 Tour "${tour.title}" estimated size:`, estimatedSize);
+            console.log(`📊 Tour duration:`, tour.duration);
+            console.log(`📊 Tour stops count:`, tour.stops.length);
+            
+            offlineContent.push({
+              tourId,
+              tourData: tour,
+              downloadedAt: downloadDate || new Date().toISOString(),
+              size: estimatedSize
+            });
+            
+            totalSize += estimatedSize;
+            console.log(`📊 Running total size:`, totalSize);
+          }
+        } catch (error) {
+          console.error(`❌ Error loading offline tour ${tourId}:`, error);
+          // Clean up broken offline entries
+          await AsyncStorage.removeItem(`tour_${tourId}_offline`);
+          await AsyncStorage.removeItem(`tour_${tourId}_data`);
+          await AsyncStorage.removeItem(`tour_${tourId}_download_date`);
+        }
+      }
+
+      console.log('📊 Final offlineContent:', offlineContent);
+      console.log('📊 Final totalSize:', totalSize);
+      console.log('📊 typeof totalSize:', typeof totalSize);
+
+      setOfflineTours(offlineContent);
+      setTotalStorageUsed(totalSize);
+
+    } catch (error) {
+      console.error('❌ Error loading offline content:', error);
+      setOfflineTours([]);
+      setTotalStorageUsed(0);
+    } finally {
+      setIsLoadingOffline(false);
+    }
+  }, [user, isOnline]);
 
   const isTourOffline = useCallback(
     (tourId: string): boolean => {
@@ -208,8 +248,22 @@ tour.stops.forEach(stop => {
     [offlineTours]
   );
 
+  // NEW: Get offline tour data
+  const getOfflineTour = useCallback(
+    (tourId: string): OfflineContent | null => {
+      return offlineTours.find(tour => tour.tourId === tourId) || null;
+    },
+    [offlineTours]
+  );
+
   const downloadTour = useCallback(
     async (tourId: string): Promise<boolean> => {
+      // Check network connectivity
+      if (!isOnline) {
+        console.error(`❌ Cannot download tour ${tourId}: No internet connection`);
+        return false;
+      }
+
       try {
         // Fetch tour data from Supabase
         const tour = await getTourById(tourId);
@@ -249,6 +303,7 @@ tour.stops.forEach(stop => {
         let downloadedItems = 0;
 
         // Step 1: Save tour data
+        await AsyncStorage.setItem(`tour_${tourId}_data`, JSON.stringify(tour));
         await new Promise(resolve => setTimeout(resolve, 200));
         downloadedItems++;
         setDownloadProgress((prev) => {
@@ -264,11 +319,13 @@ tour.stops.forEach(stop => {
           return newMap;
         });
 
-        // Step 2: Process audio files
+        // Step 2: Process audio files (simulated)
         for (let i = 0; i < audioFiles; i++) {
           const currentProgress = downloadProgress.get(tourId);
           if (currentProgress?.status === 'cancelled') {
             console.log(`❌ Download cancelled for tour ${tourId}`);
+            // Clean up partial download
+            await AsyncStorage.removeItem(`tour_${tourId}_data`);
             return false;
           }
 
@@ -290,11 +347,13 @@ tour.stops.forEach(stop => {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
 
-        // Step 3: Process images
+        // Step 3: Process images (simulated)
         for (let i = 0; i < imageFiles; i++) {
           const currentProgress = downloadProgress.get(tourId);
           if (currentProgress?.status === 'cancelled') {
             console.log(`❌ Download cancelled for tour ${tourId}`);
+            // Clean up partial download
+            await AsyncStorage.removeItem(`tour_${tourId}_data`);
             return false;
           }
 
@@ -330,7 +389,7 @@ tour.stops.forEach(stop => {
           return newMap;
         });
 
-        // Store in AsyncStorage
+        // Store offline flags
         await AsyncStorage.setItem(`tour_${tourId}_offline`, 'true');
         await AsyncStorage.setItem(`tour_${tourId}_download_date`, new Date().toISOString());
 
@@ -351,6 +410,9 @@ tour.stops.forEach(stop => {
 
       } catch (error) {
         console.error(`❌ Error downloading tour ${tourId}:`, error);
+
+        // Clean up partial download
+        await AsyncStorage.removeItem(`tour_${tourId}_data`);
 
         // Update progress to show error
         setDownloadProgress((prev) => {
@@ -379,7 +441,7 @@ tour.stops.forEach(stop => {
         return false;
       }
     },
-    [isTourOffline, loadOfflineContent, downloadProgress]
+    [isTourOffline, loadOfflineContent, downloadProgress, isOnline]
   );
 
   const removeTour = useCallback(
@@ -390,6 +452,7 @@ tour.stops.forEach(stop => {
         // Remove from AsyncStorage
         await AsyncStorage.removeItem(`tour_${tourId}_offline`);
         await AsyncStorage.removeItem(`tour_${tourId}_download_date`);
+        await AsyncStorage.removeItem(`tour_${tourId}_data`); // NEW: Remove cached data
         
         console.log(`✅ Tour ${tourId} removed from offline storage`);
 
@@ -420,6 +483,9 @@ tour.stops.forEach(stop => {
         }
         return newMap;
       });
+
+      // Clean up partial download
+      await AsyncStorage.removeItem(`tour_${tourId}_data`);
 
       // Remove progress after delay
       setTimeout(() => {
@@ -475,7 +541,11 @@ tour.stops.forEach(stop => {
       
       const keys = await AsyncStorage.getAllKeys();
       const offlineKeys = keys.filter(key => 
-        key.startsWith('tour_') && (key.endsWith('_offline') || key.endsWith('_download_date'))
+        key.startsWith('tour_') && (
+          key.endsWith('_offline') || 
+          key.endsWith('_download_date') || 
+          key.endsWith('_data')
+        )
       );
       
       await AsyncStorage.multiRemove(offlineKeys);
@@ -515,6 +585,7 @@ tour.stops.forEach(stop => {
     isLoadingOffline,
     downloadProgress,
     totalStorageUsed,
+    isOnline, // NEW
 
     // Methods
     isTourOffline,
@@ -525,6 +596,7 @@ tour.stops.forEach(stop => {
     getOfflineImagePath,
     refreshOfflineContent,
     clearAllOfflineContent,
+    getOfflineTour, // NEW
 
     // Utilities
     formatStorageSize,
