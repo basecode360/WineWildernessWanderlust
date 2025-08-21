@@ -1,6 +1,6 @@
 // services/StorageService.ts - Offline content management
-import * as FileSystem from 'expo-file-system';
-import { DownloadProgress, Tour } from '../types/tour';
+import * as FileSystem from "expo-file-system";
+import { DownloadProgress, Tour } from "../types/tour";
 
 export class StorageService {
   private static instance: StorageService;
@@ -27,7 +27,7 @@ export class StorageService {
         intermediates: true,
       });
     } catch (error) {
-      console.error('Error initializing directories:', error);
+      console.error("Error initializing directories:", error);
     }
   }
 
@@ -46,14 +46,16 @@ export class StorageService {
       for (const stop of tour.stops) {
         try {
           // Download audio
-          const audioUrl = `${baseUrl}/audio/${stop.audio}`;
-          const audioLocalPath = `${this.AUDIO_DIR}${stop.audio}`;
+          const audioUrl =
+            stop.audioUrl || `${baseUrl}/tour_audio/${stop.audio}`;
+          const audioLocalPath = `${this.AUDIO_DIR}${stop.id}.mp3`;
 
           await FileSystem.downloadAsync(audioUrl, audioLocalPath);
 
           // Download image
-          const imageUrl = `${baseUrl}/images/${stop.image}`;
-          const imageLocalPath = `${this.IMAGES_DIR}${stop.image}`;
+          const imageUrl =
+            stop.imageUrl || `${baseUrl}/tour_images/${stop.image}`;
+          const imageLocalPath = `${this.IMAGES_DIR}${stop.id}.jpg`;
 
           await FileSystem.downloadAsync(imageUrl, imageLocalPath);
 
@@ -76,7 +78,7 @@ export class StorageService {
       await this.saveTourMetadata(tour);
       return true;
     } catch (error) {
-      console.error('Error downloading tour content:', error);
+      console.error("Error downloading tour content:", error);
       return false;
     }
   }
@@ -95,7 +97,7 @@ export class StorageService {
         JSON.stringify(tourData, null, 2)
       );
     } catch (error) {
-      console.error('Error saving tour metadata:', error);
+      console.error("Error saving tour metadata:", error);
     }
   }
 
@@ -109,7 +111,7 @@ export class StorageService {
       const tourData = await FileSystem.readAsStringAsync(tourPath);
       return JSON.parse(tourData) as Tour;
     } catch (error) {
-      console.error('Error loading tour metadata:', error);
+      console.error("Error loading tour metadata:", error);
       return null;
     }
   }
@@ -120,7 +122,7 @@ export class StorageService {
       const exists = await this.fileExists(audioPath);
       return exists ? audioPath : null;
     } catch (error) {
-      console.error('Error getting local audio path:', error);
+      console.error("Error getting local audio path:", error);
       return null;
     }
   }
@@ -131,7 +133,7 @@ export class StorageService {
       const exists = await this.fileExists(imagePath);
       return exists ? imagePath : null;
     } catch (error) {
-      console.error('Error getting local image path:', error);
+      console.error("Error getting local image path:", error);
       return null;
     }
   }
@@ -150,7 +152,7 @@ export class StorageService {
 
       return true;
     } catch (error) {
-      console.error('Error deleting tour content:', error);
+      console.error("Error deleting tour content:", error);
       return false;
     }
   }
@@ -171,7 +173,7 @@ export class StorageService {
         usedSpace,
       };
     } catch (error) {
-      console.error('Error getting storage info:', error);
+      console.error("Error getting storage info:", error);
       return { usedSpace: 0 };
     }
   }
@@ -193,7 +195,7 @@ export class StorageService {
 
       return totalSize;
     } catch (error) {
-      console.error('Error calculating tour size:', error);
+      console.error("Error calculating tour size:", error);
       return 0;
     }
   }
@@ -203,10 +205,10 @@ export class StorageService {
       await this.initializeDirectories();
       const tourFiles = await FileSystem.readDirectoryAsync(this.TOURS_DIR);
       return tourFiles
-        .filter((file) => file.endsWith('.json'))
-        .map((file) => file.replace('.json', ''));
+        .filter((file) => file.endsWith(".json"))
+        .map((file) => file.replace(".json", ""));
     } catch (error) {
-      console.error('Error listing downloaded tours:', error);
+      console.error("Error listing downloaded tours:", error);
       return [];
     }
   }
@@ -228,7 +230,7 @@ export class StorageService {
       }
       await this.initializeDirectories();
     } catch (error) {
-      console.error('Error clearing tour data:', error);
+      console.error("Error clearing tour data:", error);
     }
   }
 }

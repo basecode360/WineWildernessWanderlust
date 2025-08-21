@@ -8,12 +8,14 @@ export interface Coordinates {
 export interface TourStop {
   id: string;
   title: string;
-  type: 'info_Stop' | 'lobster_stop' | 'bonus_stop';
+  type: "info_Stop" | "lobster_stop" | "bonus_stop";
   coordinates: Coordinates;
   triggerCoordinates?: Coordinates;
   audio: string;
+  audioUrl?: string; // new field for dynamic download
   transcript: string;
   image: string;
+  imageUrl?: string; // new field for dynamic download
   isPlayed: boolean;
   address?: string;
   tips?: string;
@@ -27,6 +29,7 @@ export interface Tour {
   duration: string;
   distance: string;
   image: string;
+  imageUrl?: string; // new
   isPurchased: boolean;
   isDownloaded: boolean;
   stops: TourStop[];

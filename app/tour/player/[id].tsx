@@ -1,9 +1,10 @@
-// app/tour/player/[id].tsx - FIXED: Updated for TourServices and dynamic data
-import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
-import * as Location from 'expo-location';
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+// app/tour/player/[id].tsx
+import { supabase } from "@/lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { Audio } from "expo-av";
+import * as Location from "expo-location";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,32 +16,25 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
-import { useOffline } from '../../../contexts/OfflineContext';
-import { useProgress } from '../../../contexts/ProgressContext';
-// FIXED: Import from TourServices (correct name)
-import { calculateDistance } from '../../../services/tourServices';
-import { AudioState, LocationData, Tour, TourStop } from '../../../types/tour';
+} from "react-native";
+import MapView, { Marker } from "react-native-maps";
+import { useOffline } from "../../../contexts/OfflineContext";
+import { useProgress } from "../../../contexts/ProgressContext";
+import { calculateDistance, getAudioUrl, getImageUrl } from "../../../services/tourServices";
+import { AudioState, LocationData, Tour, TourStop } from "../../../types/tour";
 
-const { width: screenWidth } = Dimensions.get('window');
-const PROXIMITY_THRESHOLD = 100; // meters
+const { width: screenWidth } = Dimensions.get("window");
+const PROXIMITY_THRESHOLD = 100;
 
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { markStopCompleted } = useProgress(); // Add this line
-  const {
-    getOfflineTour,
-    getOfflineAudioPath,
-    getOfflineImagePath,
-    isOnline
-  } = useOffline();
-  // CHANGED: Dynamic tour loading instead of static
+  const { markStopCompleted } = useProgress();
+  const { getOfflineTour, getOfflineAudioPath, getOfflineImagePath, isOnline } =
+    useOffline();
+
   const [tour, setTour] = useState<Tour | null>(null);
   const [isLoadingTour, setIsLoadingTour] = useState(true);
   const [tourError, setTourError] = useState<string | null>(null);
-
-
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(
     null
   );
@@ -54,128 +48,139 @@ export default function TourPlayerScreen() {
   const [isLocationEnabled, setIsLocationEnabled] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [showMap, setShowMap] = useState(false);
-  const [selectedStopForDirection, setSelectedStopForDirection] = useState<TourStop | null>(null);
+  const [selectedStopForDirection, setSelectedStopForDirection] =
+    useState<TourStop | null>(null);
+  const [stopImages, setStopImages] = useState<Record<string, string>>({});
 
   const audioRef = useRef<Audio.Sound | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(
     null
   );
 
-  // NEW: Load tour data when component mounts
+  // Load tour data
   useEffect(() => {
-    if (id) {
-      loadTour(id as string);
-    }
+    if (id) loadTour(id);
   }, [id]);
 
-  // NEW: Function to load tour from Supabase
+  
+
   const loadTour = async (tourId: string) => {
+    console.log("current tour id is ", tourId);
     try {
       setIsLoadingTour(true);
       setTourError(null);
-      console.log(`📱 STRICT OFFLINE: Loading tour ${tourId}...`);
+      if (isOnline) {
+        const { data, error } = await supabase
+          .from("tours")
+          .select("*, stops(*)") // assuming stops are in a related table
+          .eq("id", tourId)
+          .single();
 
-      const offlineTour = getOfflineTour(tourId);
-
-      if (offlineTour) {
-        setTour(offlineTour.tourData);
-        console.log(`✅ Offline tour loaded: ${offlineTour.tourData.title} with ${offlineTour.tourData.stops.length} stops`);
+        if (error) throw error;
+        setTour(data);
+        checkOfflineMode(tourId);
+        console.log(`✅ Online tour loaded: ${data.title}`);
       } else {
-        console.log(`❌ Tour ${tourId} not available offline`);
-        setTourError('This tour is not downloaded for offline use');
+        const offlineTour = getOfflineTour(tourId);
+        if (offlineTour) {
+          setTour(offlineTour.tourData);
+          console.log(
+            `✅ Offline tour loaded: ${offlineTour.tourData.title} with ${offlineTour.tourData.stops.length} stops`
+          );
+        } else {
+          setTourError("This tour is not downloaded for offline use");
+        }
       }
     } catch (error) {
-      console.error('❌ Failed to load offline tour:', error);
-      setTourError('Failed to load offline tour');
+      console.error("❌ Failed to load tour:", error);
+      setTourError("Failed to load tour");
     } finally {
       setIsLoadingTour(false);
     }
   };
 
+  const checkOfflineMode = async (tourId: string) => {
+    const offline = !isOnline || !!getOfflineTour(tourId);
+    setIsOfflineMode(offline);
+  };
+
+  // Preload stop images
+useEffect(() => {
+  if (!tour) return;
+
+  const loadImages = async () => {
+    const imagesMap: Record<string, string> = {};
+
+    await Promise.all(
+      tour.stops.map(async (stop) => {
+        const uri = await getImageUrl(stop.image_path, tour.id);
+        imagesMap[stop.id] = uri || '';
+      })
+    );
+
+    setStopImages(imagesMap);
+  };
+
+  loadImages();
+}, [tour]);
+
+
+
   useEffect(() => {
     requestLocationPermission();
     return () => {
-      if (locationSubscription.current) {
-        locationSubscription.current.remove();
-      }
-      if (audioRef.current) {
-        audioRef.current.unloadAsync();
-      }
+      locationSubscription.current?.remove();
+      audioRef.current?.unloadAsync();
     };
   }, []);
 
   useEffect(() => {
-    if (isLocationEnabled && tour) {
-      startLocationTracking();
-    }
+    if (isLocationEnabled && tour) startLocationTracking();
   }, [isLocationEnabled, tour]);
 
-  // Handle stop change - reset audio state when currentStopIndex changes
   useEffect(() => {
-    if (audioRef.current) {
-      // Stop current audio and reset state when stop changes
-      stopCurrentAudio();
-    }
+    stopCurrentAudio();
   }, [currentStopIndex]);
-
-  const checkOfflineMode = async () => {
-    if (tour) {
-      const isOffline = isTourOffline(tour.id);
-      setIsOfflineMode(isOffline);
-    }
-  };
 
   const requestLocationPermission = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === 'granted') {
-        setIsLocationEnabled(true);
-      } else {
+      if (status === "granted") setIsLocationEnabled(true);
+      else
         Alert.alert(
-          'Location Permission Required',
-          'This app needs location access to trigger audio at tour stops.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Open Settings',
-              onPress: () => Location.requestForegroundPermissionsAsync(),
-            },
-          ]
+          "Location Permission Required",
+          "This app needs location access to trigger audio at tour stops.",
+          [{ text: "Cancel", style: "cancel" }]
         );
-      }
     } catch (error) {
-      console.error('Error requesting location permission:', error);
+      console.error("Error requesting location permission:", error);
     }
   };
 
   const startLocationTracking = async () => {
-    try {
-      locationSubscription.current = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 1000,
-          distanceInterval: 10,
-        },
-        (location) => {
-          const newLocation: LocationData = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            accuracy: location.coords.accuracy || 0,
-            timestamp: location.timestamp,
-          };
-          setCurrentLocation(newLocation);
-          checkProximityToStops(newLocation);
-        }
-      );
-    } catch (error) {
-      console.error('Error starting location tracking:', error);
-    }
+    locationSubscription.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 1000,
+        distanceInterval: 10,
+      },
+      (loc) => {
+        const newLocation: LocationData = {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          accuracy: loc.coords.accuracy || 0,
+          timestamp: loc.timestamp,
+        };
+        setCurrentLocation(newLocation);
+        checkProximityToStops(newLocation);
+      }
+    );
   };
 
   const checkProximityToStops = (location: LocationData) => {
     if (!tour) return;
-
     tour.stops.forEach((stop, index) => {
+      if (stop.isPlayed) return;
       const triggerCoords = stop.triggerCoordinates || stop.coordinates;
       const distance = calculateDistance(
         location.latitude,
@@ -183,76 +188,44 @@ export default function TourPlayerScreen() {
         triggerCoords.lat,
         triggerCoords.lng
       );
-
-      if (distance <= PROXIMITY_THRESHOLD && !stop.isPlayed) {
-        triggerAudioForStop(stop, index);
-      }
+      if (distance <= PROXIMITY_THRESHOLD) triggerAudioForStop(stop, index);
     });
   };
 
   const stopCurrentAudio = async () => {
-    try {
-      if (audioRef.current) {
-        await audioRef.current.unloadAsync();
-        audioRef.current = null;
-      }
-      setAudioState({
-        isPlaying: false,
-        currentStopId: null,
-        position: 0,
-        duration: 0,
-      });
-    } catch (error) {
-      console.error('Error stopping audio:', error);
+    if (audioRef.current) {
+      await audioRef.current.unloadAsync();
+      audioRef.current = null;
     }
+    setAudioState({
+      isPlaying: false,
+      currentStopId: null,
+      position: 0,
+      duration: 0,
+    });
   };
 
   const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
     sound.setOnPlaybackStatusUpdate(async (status) => {
-      if (status.isLoaded) {
-        setAudioState((prev) => ({
-          ...prev,
-          position: status.positionMillis || 0,
-          duration: status.durationMillis || 0,
-          isPlaying: status.isPlaying || false,
-          currentStopId: stopId,
-        }));
-
-        if (status.didJustFinish) {
-          console.log('🏁 TourPlayer: Audio playback finished');
-
-          // Mark this stop as completed
-          if (tour && stopId) {
-            await markStopCompleted(tour.id, stopId);
-            console.log('🎉 Stop marked as completed:', stopId);
-          }
-
-          // Reset to play icon when audio finishes
-          setAudioState(prev => ({
-            ...prev,
-            isPlaying: false,
-            position: 0
-          }));
-
-          // Clean up sound object after a short delay
-          setTimeout(async () => {
-            try {
-              if (audioRef.current) {
-                await audioRef.current.unloadAsync();
-                audioRef.current = null;
-              }
-            } catch (error) {
-              console.error('❌ TourPlayer: Error cleaning up sound after finish:', error);
-            }
-          }, 100);
-        }
+      if (!status.isLoaded) return;
+      setAudioState((prev) => ({
+        ...prev,
+        position: status.positionMillis || 0,
+        duration: status.durationMillis || 0,
+        isPlaying: status.isPlaying || false,
+        currentStopId: stopId,
+      }));
+      if (status.didJustFinish && tour) {
+        await markStopCompleted(tour.id, stopId);
+        setAudioState((prev) => ({ ...prev, isPlaying: false, position: 0 }));
+        audioRef.current && audioRef.current.unloadAsync();
+        audioRef.current = null;
       }
     });
   };
 
   const triggerAudioForStop = async (stop: TourStop, index: number) => {
     if (!tour) return;
-
     try {
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
@@ -262,240 +235,143 @@ export default function TourPlayerScreen() {
         playThroughEarpieceAndroid: false,
       });
 
-      if (audioRef.current) {
-        await audioRef.current.unloadAsync();
-        audioRef.current = null;
-      }
+     const audioUri = await getAudioUrl(stop.audio_path, tour.id, stop.id);
 
-      console.log(`📱 STRICT OFFLINE: Loading audio for stop: ${stop.title}`);
+if (!audioUri) {
+  Alert.alert(
+    "Audio Not Available",
+    `This audio is not downloaded or available: ${stop.title}`
+  );
+  return;
+}
 
-      const offlineAudioPath = await getOfflineAudioPath(tour.id, stop.id);
-
-      if (offlineAudioPath) {
-        console.log(`✅ Found offline audio: ${offlineAudioPath}`);
-
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: `file://${offlineAudioPath}` },
-          { shouldPlay: false, volume: 1.0 }
+      if (!audioUri) {
+        Alert.alert(
+          "Audio Not Available",
+          `This audio is not available: ${stop.title}`
         );
-
-        const status = await sound.getStatusAsync();
-        if (status.isLoaded) {
-          audioRef.current = sound;
-          setupAudioPlaybackListener(sound, stop.id);
-
-          await sound.playAsync();
-
-          setAudioState({
-            isPlaying: true,
-            currentStopId: stop.id,
-            position: 0,
-            duration: 0,
-          });
-
-          setCurrentStopIndex(index);
-          stop.isPlayed = true;
-
-          Alert.alert('🎧 Audio Started', `Now playing: ${stop.title} (Offline)`, [
-            { text: 'OK' },
-          ]);
-        } else {
-          throw new Error('Offline audio file not valid');
-        }
-      } else {
-        throw new Error('Audio not available offline');
+        return;
       }
 
-    } catch (error: any) {
-      console.error('❌ Offline audio error:', error);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: audioUri },
+        { shouldPlay: true, volume: 1.0 }
+      );
+      audioRef.current = sound;
+      setupAudioPlaybackListener(sound, stop.id);
+
+      setAudioState({
+        isPlaying: true,
+        currentStopId: stop.id,
+        position: 0,
+        duration: 0,
+      });
+      setCurrentStopIndex(index);
+      setTour((prev) => {
+        if (!prev) return prev;
+        const updatedStops = [...prev.stops];
+        updatedStops[index] = { ...updatedStops[index], isPlayed: true };
+        return { ...prev, stops: updatedStops };
+      });
+    } catch (error) {
+      console.error("❌ Offline audio error:", error);
       Alert.alert(
-        'Audio Not Available',
+        "Audio Not Available",
         `This audio is not downloaded for offline use: ${stop.title}`
       );
     }
   };
 
-  const playStopAudio = async (stop: TourStop, index: number) => {
-    await triggerAudioForStop(stop, index);
-  };
-
   const toggleAudio = async () => {
-    const currentStop = tour?.stops[currentStopIndex];
-
-    if (!audioRef.current) {
-      // No audio loaded - start playing current stop
-      if (currentStop) {
-        await playStopAudio(currentStop, currentStopIndex);
-      }
+    if (!audioRef.current && tour?.stops[currentStopIndex]) {
+      await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex);
       return;
     }
-
     try {
-      if (audioState.isPlaying) {
-        // Currently playing - pause it
-        await audioRef.current.pauseAsync();
-        setAudioState((prev) => ({
-          ...prev,
-          isPlaying: false,
-        }));
-      } else {
-        // Currently paused - resume playback
-        await audioRef.current.playAsync();
-        setAudioState((prev) => ({
-          ...prev,
-          isPlaying: true,
-        }));
-      }
+      if (audioState.isPlaying) await audioRef.current?.pauseAsync();
+      else await audioRef.current?.playAsync();
+      setAudioState((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
     } catch (error) {
-      Alert.alert('Playback Error', 'Could not toggle audio playback');
+      Alert.alert("Playback Error", "Could not toggle audio playback");
     }
   };
 
   const openDirections = (stop: TourStop) => {
-    const { lat, lng } = stop.coordinates;
+const { lat, lng } = stop.coordinates || { lat: 0, lng: 0 };
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          Linking.openURL(url);
-        } else {
-          Alert.alert('Error', 'Unable to open maps application');
-        }
-      })
-      .catch((err) => console.error('Error opening directions:', err));
+    Linking.canOpenURL(url).then((supported) =>
+      supported
+        ? Linking.openURL(url)
+        : Alert.alert("Error", "Unable to open maps app")
+    );
   };
 
   const handleStopPress = (stop: TourStop, index: number) => {
-    if (selectedStopForDirection?.id === stop.id) {
-      openDirections(stop);
-    } else {
+    if (selectedStopForDirection?.id === stop.id) openDirections(stop);
+    else {
       setSelectedStopForDirection(stop);
       setCurrentStopIndex(index);
     }
   };
 
-  const showMapView = () => {
-    setShowMap(true);
-  };
+  const handlePreviousStop = () =>
+    currentStopIndex > 0 && setCurrentStopIndex(currentStopIndex - 1);
+  const handleNextStop = () =>
+    tour &&
+    currentStopIndex < tour.stops.length - 1 &&
+    setCurrentStopIndex(currentStopIndex + 1);
 
-  const hideMapView = () => {
-    setShowMap(false);
-  };
-
-  const renderStopImage = async (stop: TourStop) => {
-    if (!stop.image || !tour) return null;
-
-    try {
-      const offlineImagePath = await getOfflineImagePath(tour.id, stop.image);
-
-      if (offlineImagePath) {
-        return (
-          <Image
-            source={{ uri: `file://${offlineImagePath}` }}
-            style={styles.stopThumbnail}
-            resizeMode="cover"
-            onLoad={() => console.log(`✅ Offline stop image loaded: ${stop.title}`)}
-            onError={(error) => console.error(`❌ Offline stop image error: ${stop.title}`, error.nativeEvent)}
-          />
-        );
-      }
-    } catch (error) {
-      console.warn('Failed to load offline stop image:', error);
-    }
-
+  // Render helper
+  const renderStopImage = (stop: TourStop) => {
+    const uri = stopImages[stop.id];
+    if (uri) return <Image source={{ uri }} style={styles.stopThumbnail} />;
     return (
-      <View style={[styles.stopThumbnail, { backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center' }]}>
+      <View
+        style={[
+          styles.stopThumbnail,
+          {
+            backgroundColor: "#f0f0f0",
+            justifyContent: "center",
+            alignItems: "center",
+          },
+        ]}
+      >
         <Ionicons name="image-outline" size={20} color="#ccc" />
       </View>
     );
   };
 
-  const renderCurrentStopImage = async (stop: TourStop) => {
-    if (!stop?.image || !tour) return null;
+  const currentStop = tour?.stops[currentStopIndex];
+  const getPlayButtonIcon = () => (audioState.isPlaying ? "pause" : "play");
 
-    try {
-      const offlineImagePath = await getOfflineImagePath(tour.id, stop.image);
-
-      if (offlineImagePath) {
-        return (
-          <Image
-            source={{ uri: `file://${offlineImagePath}` }}
-            style={styles.currentStopImage}
-            resizeMode="cover"
-            onLoad={() => console.log(`✅ Offline current stop image loaded: ${stop.title}`)}
-            onError={(error) => console.error(`❌ Offline current stop image error: ${stop.title}`, error.nativeEvent)}
-          />
-        );
-      }
-    } catch (error) {
-      console.warn('Failed to load offline current stop image:', error);
-    }
-
-    return null;
-  };
-
-  // Enhanced skip functions that handle audio state properly
-  const handlePreviousStop = () => {
-    if (currentStopIndex > 0) {
-      setCurrentStopIndex(currentStopIndex - 1);
-      // Audio will be reset by useEffect when currentStopIndex changes
-    }
-  };
-
-  const handleNextStop = () => {
-    if (tour && currentStopIndex < tour.stops.length - 1) {
-      setCurrentStopIndex(currentStopIndex + 1);
-      // Audio will be reset by useEffect when currentStopIndex changes
-    }
-  };
-
-  // NEW: Loading state
-  if (isLoadingTour) {
+  // Loading & error states
+  if (isLoadingTour)
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#5CC4C4" />
         <Text style={styles.loadingText}>Loading offline tour...</Text>
       </View>
     );
-  }
 
-  // NEW: Error state
-  if (tourError || !tour) {
+  if (tourError || !tour)
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="cloud-offline-outline" size={64} color="#FF9800" />
         <Text style={styles.errorTitle}>Tour Not Available Offline</Text>
         <Text style={styles.errorText}>
-          {tourError || 'This tour is not downloaded for offline use'}
-        </Text>
-        <Text style={styles.errorText}>
-          Connect to the internet and download this tour to play it offline.
+          {tourError || "This tour is not downloaded for offline use"}
         </Text>
         <TouchableOpacity
           style={styles.retryButton}
-          onPress={() => id && loadTour(id as string)}
+          onPress={() => id && loadTour(id)}
         >
           <Text style={styles.retryButtonText}>Try Again</Text>
         </TouchableOpacity>
       </View>
     );
-  }
-
-  const currentStop = tour.stops[currentStopIndex];
-
-  // Determine which icon to show based on audio state
-  const getPlayButtonIcon = () => {
-    if (audioState.isPlaying) {
-      return 'pause'; // Show pause icon when playing
-    } else {
-      return 'play'; // Show play icon when paused, stopped, or on stop change
-    }
-  };
 
   return (
     <View style={styles.container}>
-      {/* Map View - Hidden by default */}
       {showMap && (
         <View style={styles.mapContainer}>
           <MapView
@@ -509,7 +385,7 @@ export default function TourPlayerScreen() {
             showsUserLocation={isLocationEnabled}
             followsUserLocation={isLocationEnabled}
           >
-            {tour.stops.map((stop, index) => (
+            {tour.stops.map((stop) => (
               <Marker
                 key={stop.id}
                 coordinate={{
@@ -517,61 +393,31 @@ export default function TourPlayerScreen() {
                   longitude: stop.coordinates.lng,
                 }}
                 title={stop.title}
-                description={stop.type.replace('_', ' ')}
-                pinColor={stop.isPlayed ? '#4CAF50' : '#5CC4C4'}
+                description={stop.type.replace("_", " ")}
+                pinColor={stop.isPlayed ? "#4CAF50" : "#5CC4C4"}
               />
             ))}
           </MapView>
-
-          {/* Close Map Button */}
-          <TouchableOpacity style={styles.closeMapButton} onPress={hideMapView}>
+          <TouchableOpacity
+            style={styles.closeMapButton}
+            onPress={() => setShowMap(false)}
+          >
             <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
-
-          {/* Status Indicators */}
-          <View style={styles.statusContainer}>
-            {/* Location Status */}
-            <View style={styles.locationStatus}>
-              <Ionicons
-                name={isLocationEnabled ? 'location' : 'location-outline'}
-                size={16}
-                color={isLocationEnabled ? '#4CAF50' : '#666'}
-              />
-              <Text
-                style={[
-                  styles.statusText,
-                  { color: isLocationEnabled ? '#4CAF50' : '#666' },
-                ]}
-              >
-                {isLocationEnabled ? 'GPS Active' : 'GPS Disabled'}
-              </Text>
-            </View>
-
-            {/* Offline Status */}
-            {isOfflineMode && (
-              <View style={styles.offlineStatus}>
-                <Ionicons name="cloud-done" size={16} color="#4CAF50" />
-                <Text style={[styles.statusText, { color: '#4CAF50' }]}>
-                  Offline Mode
-                </Text>
-              </View>
-            )}
-          </View>
         </View>
       )}
 
       {/* Audio Controls */}
       <View style={styles.audioControls}>
         <View style={styles.currentStopInfo}>
-          {renderCurrentStopImage(currentStop)}
+          {currentStop && renderStopImage(currentStop)}
           <Text style={styles.currentStopTitle}>
-            {currentStop ? currentStop.title : 'Select a stop to begin'}
+            {currentStop?.title || "Select a stop to begin"}
           </Text>
           <Text style={styles.currentStopType}>
-            {currentStop && currentStop.type.replace('_', ' ').toUpperCase()}
+            {currentStop?.type.replace("_", " ").toUpperCase()}
           </Text>
         </View>
-
         <View style={styles.controlButtons}>
           <TouchableOpacity
             style={styles.controlButton}
@@ -580,18 +426,12 @@ export default function TourPlayerScreen() {
           >
             <Ionicons name="play-skip-back" size={24} color="#fff" />
           </TouchableOpacity>
-
           <TouchableOpacity
             style={[styles.controlButton, styles.playButton]}
             onPress={toggleAudio}
           >
-            <Ionicons
-              name={getPlayButtonIcon()}
-              size={32}
-              color="#fff"
-            />
+            <Ionicons name={getPlayButtonIcon()} size={32} color="#fff" />
           </TouchableOpacity>
-
           <TouchableOpacity
             style={styles.controlButton}
             onPress={handleNextStop}
@@ -603,28 +443,13 @@ export default function TourPlayerScreen() {
       </View>
 
       {/* Stops List */}
-      <ScrollView style={styles.stopsList} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.stopsList}>
         <Text style={styles.stopsTitle}>
-          Tour Stops ({tour.stops.length})
+          Tour Stops ({tour.stops.length}){" "}
           {isOfflineMode && (
-            <Text style={styles.offlineIndicator}> • Offline</Text>
+            <Text style={styles.offlineIndicator}>• Offline</Text>
           )}
         </Text>
-
-        {selectedStopForDirection && (
-          <View style={styles.directionPrompt}>
-            <Text style={styles.directionText}>
-              Tap direction button to navigate to "{selectedStopForDirection.title}"
-            </Text>
-            <TouchableOpacity
-              style={styles.clearSelectionButton}
-              onPress={() => setSelectedStopForDirection(null)}
-            >
-              <Ionicons name="close" size={16} color="#666" />
-            </TouchableOpacity>
-          </View>
-        )}
-
         {tour.stops.map((stop, index) => (
           <TouchableOpacity
             key={stop.id}
@@ -632,7 +457,8 @@ export default function TourPlayerScreen() {
               styles.stopItem,
               index === currentStopIndex && styles.currentStopItem,
               stop.isPlayed && styles.playedStopItem,
-              selectedStopForDirection?.id === stop.id && styles.selectedStopItem,
+              selectedStopForDirection?.id === stop.id &&
+                styles.selectedStopItem,
             ]}
             onPress={() => handleStopPress(stop, index)}
           >
@@ -643,13 +469,12 @@ export default function TourPlayerScreen() {
                 <Text style={styles.stopNumber}>{index + 1}</Text>
               )}
             </View>
-
             <View style={styles.stopContent}>
               {renderStopImage(stop)}
               <View style={styles.stopTextContent}>
                 <Text style={styles.stopTitle}>{stop.title}</Text>
                 <Text style={styles.stopType}>
-                  {stop.type.replace('_', ' ')}
+                  {stop.type.replace("_", " ")}
                 </Text>
                 {currentLocation && (
                   <Text style={styles.stopDistance}>
@@ -666,27 +491,6 @@ export default function TourPlayerScreen() {
                 )}
               </View>
             </View>
-
-            <View style={styles.stopActions}>
-              {selectedStopForDirection?.id === stop.id ? (
-                <TouchableOpacity
-                  style={styles.directionButton}
-                  onPress={() => openDirections(stop)}
-                >
-                  <Ionicons name="navigate" size={20} color="#5CC4C4" />
-                </TouchableOpacity>
-              ) : (
-                <>
-                  {stop.type === 'lobster_stop' && (
-                    <Text style={styles.stopEmoji}>🦞</Text>
-                  )}
-                  {stop.type === 'bonus_stop' && (
-                    <Text style={styles.stopEmoji}>🎁</Text>
-                  )}
-                  {stop.type === 'info_Stop' && <Text style={styles.stopEmoji}>ℹ️</Text>}
-                </>
-              )}
-            </View>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -697,87 +501,87 @@ export default function TourPlayerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: "#f8f9fa",
   },
   // NEW: Loading container
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
     padding: 20,
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
   },
   errorContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
     padding: 20,
   },
   errorTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginTop: 16,
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
   errorText: {
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
     marginBottom: 24,
   },
   retryButton: {
-    backgroundColor: '#5CC4C4',
+    backgroundColor: "#5CC4C4",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 25,
   },
   retryButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   mapContainer: {
     height: 300,
-    position: 'relative',
+    position: "relative",
   },
   map: {
     flex: 1,
   },
   closeMapButton: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     left: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
     borderRadius: 20,
     padding: 8,
   },
   statusContainer: {
-    position: 'absolute',
+    position: "absolute",
     top: 10,
     right: 10,
   },
   locationStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     marginBottom: 8,
   },
   offlineStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -785,46 +589,46 @@ const styles = StyleSheet.create({
   statusText: {
     marginLeft: 4,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   audioControls: {
-    backgroundColor: '#5CC4C4',
+    backgroundColor: "#5CC4C4",
     padding: 20,
   },
   currentStopInfo: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 16,
   },
   currentStopTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
+    fontWeight: "bold",
+    color: "#fff",
+    textAlign: "center",
   },
   currentStopType: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: "rgba(255, 255, 255, 0.8)",
     marginTop: 4,
   },
   controlButtons: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
   },
   controlButton: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
     marginHorizontal: 10,
   },
   playButton: {
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
   },
   stopsList: {
     flex: 1,
@@ -832,18 +636,18 @@ const styles = StyleSheet.create({
   },
   stopsTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 16,
   },
   offlineIndicator: {
-    color: '#4CAF50',
+    color: "#4CAF50",
     fontSize: 16,
   },
   directionPrompt: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E3F2FD',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#E3F2FD",
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
@@ -851,56 +655,56 @@ const styles = StyleSheet.create({
   directionText: {
     flex: 1,
     fontSize: 14,
-    color: '#1976D2',
-    fontWeight: '500',
+    color: "#1976D2",
+    fontWeight: "500",
   },
   clearSelectionButton: {
     padding: 4,
   },
   stopItem: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
+    flexDirection: "row",
+    backgroundColor: "#fff",
     padding: 12,
     borderRadius: 12,
     marginBottom: 8,
-    alignItems: 'flex-start',
+    alignItems: "flex-start",
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
   currentStopItem: {
     borderWidth: 2,
-    borderColor: '#5CC4C4',
+    borderColor: "#5CC4C4",
   },
   playedStopItem: {
-    backgroundColor: '#f0f8f0',
+    backgroundColor: "#f0f8f0",
   },
   selectedStopItem: {
     borderWidth: 2,
-    borderColor: '#1976D2',
-    backgroundColor: '#F3F9FF',
+    borderColor: "#1976D2",
+    backgroundColor: "#F3F9FF",
   },
   stopIconContainer: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#5CC4C4',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#5CC4C4",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 10,
     marginTop: 2,
   },
   stopNumber: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 14,
   },
   stopContent: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   stopThumbnail: {
     width: 50,
@@ -912,42 +716,42 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   currentStopImage: {
-    width: '100%',
+    width: "100%",
     height: 300,
     borderRadius: 8,
     marginBottom: 8,
   },
   stopTitle: {
     fontSize: 15,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 2,
     lineHeight: 18,
   },
   stopType: {
     fontSize: 11,
-    color: '#666',
-    textTransform: 'capitalize',
+    color: "#666",
+    textTransform: "capitalize",
     marginBottom: 2,
   },
   stopDistance: {
     fontSize: 11,
-    color: '#5CC4C4',
-    fontWeight: '600',
+    color: "#5CC4C4",
+    fontWeight: "600",
   },
   stopActions: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     marginTop: 2,
   },
   stopEmoji: {
     fontSize: 20,
   },
   directionButton: {
-    backgroundColor: '#E3F2FD',
+    backgroundColor: "#E3F2FD",
     padding: 8,
     borderRadius: 20,
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 1,

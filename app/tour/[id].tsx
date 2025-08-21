@@ -1,7 +1,7 @@
 // app/tour/[id].tsx - Updated Tour Detail Screen with dynamic Supabase data
-import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react'; // ADDED: useEffect
+import { Ionicons } from "@expo/vector-icons";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react"; // ADDED: useEffect
 import {
   ActivityIndicator,
   Alert,
@@ -12,14 +12,14 @@ import {
   Text,
   TouchableOpacity,
   View,
-} from 'react-native';
-import PaymentSheet from '../../components/payment/PaymentSheet';
-import { useOffline } from '../../contexts/OfflineContext';
-import { usePurchases } from '../../contexts/PurchaseContext.tsx';
+} from "react-native";
+import PaymentSheet from "../../components/payment/PaymentSheet";
+import { useOffline } from "../../contexts/OfflineContext";
+import { usePurchases } from "../../contexts/PurchaseContext.tsx";
 // CHANGED: Import from services instead of data
-import { getImageSource, getTourById } from '../../services/tourServices';
-import { Tour, TourStop } from '../../types/tour'; // ADDED: Tour type
-import { ERROR_MESSAGES } from '../../utils/constants'; // ADDED: Error messages
+import { getImageUrl, getTourById } from "../../services/tourServices";
+import { Tour, TourStop } from "../../types/tour"; // ADDED: Tour type
+import { ERROR_MESSAGES } from "../../utils/constants"; // ADDED: Error messages
 // REMOVED: import { getImageAsset } from '../../utils/imageAssets';
 
 export default function TourDetailScreen() {
@@ -61,14 +61,18 @@ export default function TourDetailScreen() {
       setTour(tourData);
 
       if (tourData) {
-        console.log(`✅ Tour loaded: ${tourData.title} with ${tourData.stops.length} stops`);
+        console.log(
+          `✅ Tour loaded: ${tourData.title} with ${tourData.stops.length} stops`
+        );
       } else {
         console.log(`⚠️ Tour ${tourId} not found`);
-        setTourError('Tour not found');
+        setTourError("Tour not found");
       }
     } catch (error) {
-      console.error('❌ Failed to load tour:', error);
-      setTourError(error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR);
+      console.error("❌ Failed to load tour:", error);
+      setTourError(
+        error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR
+      );
     } finally {
       setIsLoadingTour(false);
     }
@@ -101,12 +105,12 @@ export default function TourDetailScreen() {
 
     // Show success message with option to start tour
     Alert.alert(
-      'Purchase Successful! 🎉',
+      "Purchase Successful! 🎉",
       `You now have access to "${tour?.title}". Would you like to start the tour now?`,
       [
-        { text: 'Later', style: 'cancel' },
+        { text: "Later", style: "cancel" },
         {
-          text: 'Start Tour',
+          text: "Start Tour",
           onPress: () => router.push(`/tour/player/${tour?.id}`),
         },
       ]
@@ -115,17 +119,17 @@ export default function TourDetailScreen() {
 
   const handlePurchaseError = (error: string) => {
     Alert.alert(
-      'Purchase Failed',
-      error || 'Something went wrong. Please try again.',
-      [{ text: 'OK' }]
+      "Purchase Failed",
+      error || "Something went wrong. Please try again.",
+      [{ text: "OK" }]
     );
   };
 
   const handleDownload = async () => {
     if (!isPurchased) {
       Alert.alert(
-        'Purchase Required',
-        'Please purchase the tour first to download it for offline use.'
+        "Purchase Required",
+        "Please purchase the tour first to download it for offline use."
       );
       return;
     }
@@ -133,21 +137,21 @@ export default function TourDetailScreen() {
     if (isOffline) {
       // Tour is already downloaded, offer to remove it
       Alert.alert(
-        'Remove Offline Content',
-        'This tour is already available offline. Would you like to remove it to free up space?',
+        "Remove Offline Content",
+        "This tour is already available offline. Would you like to remove it to free up space?",
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: "Cancel", style: "cancel" },
           {
-            text: 'Remove',
-            style: 'destructive',
+            text: "Remove",
+            style: "destructive",
             onPress: async () => {
               try {
                 await removeTour(id as string);
-                Alert.alert('Success', 'Tour removed from offline storage.');
+                Alert.alert("Success", "Tour removed from offline storage.");
               } catch (error) {
                 Alert.alert(
-                  'Error',
-                  'Failed to remove tour from offline storage.'
+                  "Error",
+                  "Failed to remove tour from offline storage."
                 );
               }
             },
@@ -160,13 +164,13 @@ export default function TourDetailScreen() {
     if (downloading) {
       // Download in progress, offer to cancel
       Alert.alert(
-        'Cancel Download',
-        'Download is in progress. Would you like to cancel it?',
+        "Cancel Download",
+        "Download is in progress. Would you like to cancel it?",
         [
-          { text: 'No', style: 'cancel' },
+          { text: "No", style: "cancel" },
           {
-            text: 'Cancel Download',
-            style: 'destructive',
+            text: "Cancel Download",
+            style: "destructive",
             onPress: async () => {
               await cancelDownload(id as string);
             },
@@ -180,17 +184,17 @@ export default function TourDetailScreen() {
     try {
       const success = await downloadTour(id as string);
       if (success) {
-        Alert.alert('Download Complete', 'Tour is now available offline!');
+        Alert.alert("Download Complete", "Tour is now available offline!");
       } else {
         Alert.alert(
-          'Download Failed',
-          'There was an error downloading the tour. Please try again.'
+          "Download Failed",
+          "There was an error downloading the tour. Please try again."
         );
       }
     } catch (error) {
       Alert.alert(
-        'Download Failed',
-        'There was an error downloading the tour. Please try again.'
+        "Download Failed",
+        "There was an error downloading the tour. Please try again."
       );
     }
   };
@@ -211,9 +215,7 @@ export default function TourDetailScreen() {
       <View style={styles.errorContainer}>
         <Ionicons name="warning-outline" size={64} color="#F44336" />
         <Text style={styles.errorTitle}>Unable to Load Tour</Text>
-        <Text style={styles.errorText}>
-          {tourError || 'Tour not found'}
-        </Text>
+        <Text style={styles.errorText}>{tourError || "Tour not found"}</Text>
         <TouchableOpacity
           style={styles.retryButton}
           onPress={() => id && loadTour(id as string)}
@@ -238,15 +240,15 @@ export default function TourDetailScreen() {
       <View style={styles.stopContent}>
         <Text style={styles.stopTitle}>{item.title}</Text>
         <Text style={styles.stopType}>
-          {item.type.replace('_', ' ').toUpperCase()}
+          {item.type.replace("_", " ").toUpperCase()}
         </Text>
         {item.address && <Text style={styles.stopAddress}>{item.address}</Text>}
         {item.tips && <Text style={styles.stopTips}>💡 {item.tips}</Text>}
       </View>
       <View style={styles.stopIcon}>
-        {item.type === 'lobster_stop' ? (
+        {item.type === "lobster_stop" ? (
           <Text style={styles.stopEmoji}>🦞</Text>
-        ) : item.type === 'bonus_stop' ? (
+        ) : item.type === "bonus_stop" ? (
           <Text style={styles.stopEmoji}>🎁</Text>
         ) : (
           <Text style={styles.stopEmoji}>ℹ️</Text>
@@ -261,15 +263,15 @@ export default function TourDetailScreen() {
       <View style={styles.imageContainer}>
         {tour.image ? (
           <Image
-            source={getImageSource(tour.image)} // Use the smart image source function
+            source={{ uri: getImageUrl(tour.image) ?? undefined }}
             style={styles.tourImage}
             resizeMode="cover"
             onError={(e) => {
-              console.log('❌ Tour detail image error:', e.nativeEvent.error);
-              console.log('❌ Failed tour image source:', tour.image);
+              console.log("❌ Tour detail image error:", e.nativeEvent.error);
+              console.log("❌ Failed tour image source:", tour.image);
             }}
             onLoad={() => {
-              console.log('✅ Tour detail image loaded');
+              console.log("✅ Tour detail image loaded");
             }}
           />
         ) : (
@@ -324,10 +326,10 @@ export default function TourDetailScreen() {
             onPress={handlePurchase}
           >
             <Text style={styles.purchaseButtonText}>
-              {isPurchased ? 'Start Tour' : 'Purchase Tour'}
+              {isPurchased ? "Start Tour" : "Purchase Tour"}
             </Text>
             <Ionicons
-              name={isPurchased ? 'play' : 'card-outline'}
+              name={isPurchased ? "play" : "card-outline"}
               size={20}
               color="#fff"
               style={{ marginLeft: 8 }}
@@ -371,7 +373,7 @@ export default function TourDetailScreen() {
               <View style={styles.downloadProgressContainer}>
                 <View style={styles.downloadProgressHeader}>
                   <Text style={styles.downloadProgressTitle}>
-                    Downloading...{' '}
+                    Downloading...{" "}
                     {Math.round(downloadingProgress.progress * 100)}%
                   </Text>
                   <TouchableOpacity
@@ -468,101 +470,101 @@ export default function TourDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: "#f8f9fa",
   },
   // NEW: Loading state styles
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
     padding: 20,
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
   },
   // UPDATED: Error container styles
   errorContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f8f9fa",
     padding: 20,
   },
   errorTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginTop: 16,
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
   errorText: {
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
     marginBottom: 24,
   },
   // NEW: Button styles for error state
   retryButton: {
-    backgroundColor: '#5CC4C4',
+    backgroundColor: "#5CC4C4",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 25,
     marginBottom: 12,
   },
   retryButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   backButton: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: "#ddd",
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 25,
   },
   backButtonText: {
-    color: '#666',
+    color: "#666",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   imageContainer: {
     height: 250,
-    position: 'relative',
+    position: "relative",
   },
   tourImage: {
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   imagePlaceholder: {
     flex: 1,
-    backgroundColor: '#5CC4C4',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#5CC4C4",
+    justifyContent: "center",
+    alignItems: "center",
   },
   imageEmoji: {
     fontSize: 64,
   },
   purchasedBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: 20,
     right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(76, 175, 80, 0.9)",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
   },
   purchasedText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     marginLeft: 4,
   },
   content: {
@@ -570,43 +572,43 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 12,
   },
   description: {
     fontSize: 16,
-    color: '#666',
+    color: "#666",
     lineHeight: 24,
     marginBottom: 20,
   },
   metaContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    backgroundColor: '#fff',
+    flexDirection: "row",
+    justifyContent: "space-around",
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
   metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   metaText: {
     marginLeft: 6,
     fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+    color: "#333",
+    fontWeight: "500",
   },
   priceContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 20,
   },
   priceSection: {
@@ -614,175 +616,175 @@ const styles = StyleSheet.create({
   },
   priceText: {
     fontSize: 32,
-    fontWeight: 'bold',
-    color: '#5CC4C4',
+    fontWeight: "bold",
+    color: "#5CC4C4",
   },
   priceSubtext: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginTop: 2,
   },
   purchaseButton: {
-    backgroundColor: '#5CC4C4',
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: "#5CC4C4",
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 25,
     elevation: 3,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
   purchaseButtonPurchased: {
-    backgroundColor: '#4CAF50',
+    backgroundColor: "#4CAF50",
   },
   purchaseButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 16,
   },
   featuresContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
   featuresTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 12,
   },
   featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 8,
   },
   featureText: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginLeft: 8,
     flex: 1,
   },
   downloadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: '#5CC4C4',
+    borderColor: "#5CC4C4",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
   downloadButtonText: {
-    color: '#5CC4C4',
-    fontWeight: '600',
+    color: "#5CC4C4",
+    fontWeight: "600",
     marginLeft: 8,
   },
   downloadSection: {
     marginBottom: 16,
   },
   downloadProgressContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
   },
   downloadProgressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 12,
   },
   downloadProgressTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+    fontWeight: "600",
+    color: "#333",
   },
   cancelDownloadButton: {
     padding: 4,
   },
   progressBar: {
     height: 4,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: "#f0f0f0",
     borderRadius: 2,
     marginBottom: 8,
   },
   progressFill: {
-    height: '100%',
-    backgroundColor: '#5CC4C4',
+    height: "100%",
+    backgroundColor: "#5CC4C4",
     borderRadius: 2,
   },
   downloadProgressText: {
     fontSize: 12,
-    color: '#666',
+    color: "#666",
   },
   downloadedContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   downloadedIndicator: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E8F5E8',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E8F5E8",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
     marginRight: 12,
   },
   downloadedText: {
-    color: '#4CAF50',
-    fontWeight: '600',
+    color: "#4CAF50",
+    fontWeight: "600",
     marginLeft: 8,
   },
   removeOfflineButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 8,
     paddingHorizontal: 12,
   },
   removeOfflineText: {
-    color: '#ff4444',
+    color: "#ff4444",
     fontSize: 14,
     marginLeft: 4,
   },
   sectionTitle: {
     fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 16,
   },
   stopsSection: {
     marginTop: 20,
   },
   stopItem: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
+    flexDirection: "row",
+    backgroundColor: "#fff",
     padding: 16,
     borderRadius: 12,
-    alignItems: 'flex-start',
+    alignItems: "flex-start",
     elevation: 1,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -791,14 +793,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#5CC4C4',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#5CC4C4",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
   stopNumberText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 14,
   },
   stopContent: {
@@ -806,25 +808,25 @@ const styles = StyleSheet.create({
   },
   stopTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 4,
   },
   stopType: {
     fontSize: 12,
-    color: '#5CC4C4',
-    fontWeight: '600',
+    color: "#5CC4C4",
+    fontWeight: "600",
     marginBottom: 4,
   },
   stopAddress: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginBottom: 4,
   },
   stopTips: {
     fontSize: 14,
-    color: '#666',
-    fontStyle: 'italic',
+    color: "#666",
+    fontStyle: "italic",
   },
   stopIcon: {
     marginLeft: 8,
