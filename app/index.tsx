@@ -1,9 +1,9 @@
 // app/index.tsx - Updated main entry point with splash screen
-import React, { useEffect, useState } from 'react';
 import { Redirect, router } from 'expo-router';
-import { ActivityIndicator, View, Text } from 'react-native';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
 import SplashScreen from '../components/SplashScreen';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function IndexScreen() {
   const { user, loading } = useAuth();

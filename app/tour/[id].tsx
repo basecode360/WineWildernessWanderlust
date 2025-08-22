@@ -284,15 +284,7 @@ export default function TourDetailScreen() {
         {item.address && <Text style={styles.stopAddress}>{item.address}</Text>}
         {item.tips && <Text style={styles.stopTips}>💡 {item.tips}</Text>}
       </View>
-      <View style={styles.stopIcon}>
-        {item.type === "lobster_stop" ? (
-          <Text style={styles.stopEmoji}>🦞</Text>
-        ) : item.type === "bonus_stop" ? (
-          <Text style={styles.stopEmoji}>🎁</Text>
-        ) : (
-          <Text style={styles.stopEmoji}>ℹ️</Text>
-        )}
-      </View>
+ 
     </View>
   );
 
@@ -315,9 +307,7 @@ export default function TourDetailScreen() {
             }}
           />
         ) : (
-          <View style={styles.imagePlaceholder}>
-            <Text style={styles.imageEmoji}>🦞</Text>
-          </View>
+          ""
         )}
 
         {isPurchased && (

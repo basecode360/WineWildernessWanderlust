@@ -1,4 +1,4 @@
-// app/offline-downloads.tsx - Strict Offline Downloads Management (YouTube Premium style)
+// app/offline-downloads.tsx - Fixed Offline Downloads Management with proper image handling
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOffline } from '../contexts/OfflineContext';
+import { getImageUrl } from '../services/tourServices'; // Import the function
 
 // Enhanced OfflineContent interface
 interface OfflineContent {
@@ -37,6 +38,7 @@ interface OfflineContent {
 export default function OfflineDownloadsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  const [tourImages, setTourImages] = useState<Record<string, string | null>>({});
 
   const insets = useSafeAreaInsets();
 
@@ -57,6 +59,38 @@ export default function OfflineDownloadsScreen() {
   console.log('📊 totalStorageUsed:', totalStorageUsed);
   console.log('📊 isOnline:', isOnline);
   console.log('📊 Storage formatted:', formatStorageSize(totalStorageUsed));
+
+  // Load tour images when offline tours change
+  useEffect(() => {
+    loadTourImages();
+  }, [offlineTours]);
+
+  // Load images for all offline tours
+  const loadTourImages = async () => {
+    const imagePromises = offlineTours.map(async (tour) => {
+      try {
+        // Use the getImageUrl function from tourServices with offline fallback
+        const imageUrl = await getImageUrl(
+          tour.tourData.image || null,
+          tour.tourId,
+          'main' // Use 'main' as the image key for the main tour image
+        );
+        return { tourId: tour.tourId, imageUrl };
+      } catch (error) {
+        console.warn(`Failed to load image for tour ${tour.tourId}:`, error);
+        return { tourId: tour.tourId, imageUrl: null };
+      }
+    });
+
+    const imageResults = await Promise.all(imagePromises);
+    const imageMap: Record<string, string | null> = {};
+    
+    imageResults.forEach(({ tourId, imageUrl }) => {
+      imageMap[tourId] = imageUrl;
+    });
+
+    setTourImages(imageMap);
+  };
 
   // Check storage usage and show warnings
   useEffect(() => {
@@ -79,6 +113,8 @@ export default function OfflineDownloadsScreen() {
     setRefreshing(true);
     try {
       await refreshOfflineContent();
+      // Reload images after refreshing content
+      await loadTourImages();
     } catch (error) {
       Alert.alert('Refresh Error', 'Failed to refresh offline content');
     } finally {
@@ -98,6 +134,12 @@ export default function OfflineDownloadsScreen() {
           onPress: async () => {
             try {
               await removeTour(tourId);
+              // Remove the image from local state
+              setTourImages(prev => {
+                const updated = { ...prev };
+                delete updated[tourId];
+                return updated;
+              });
               Alert.alert('Removed', 'Tour removed from your device.');
             } catch (error) {
               Alert.alert('Error', 'Failed to remove tour. Please try again.');
@@ -125,6 +167,8 @@ export default function OfflineDownloadsScreen() {
           onPress: async () => {
             try {
               await clearAllOfflineContent();
+              // Clear all images from local state
+              setTourImages({});
               Alert.alert('Success', 'All downloaded content has been removed.');
             } catch (error) {
               Alert.alert('Error', 'Failed to remove content. Please try again.');
@@ -162,18 +206,20 @@ export default function OfflineDownloadsScreen() {
     });
   };
 
-  // Enhanced offline image resolver
+  // Enhanced offline image resolver using tourServices
   const getOfflineImageSource = (tour: OfflineContent) => {
-    if (!tour.tourData.image) return null;
-
-    // For strict offline mode, only show downloaded images
-    try {
-      // This should be resolved from the offline tour's imageFiles
-      // For now, show placeholder since we're in strict offline mode
-      return null;
-    } catch (error) {
-      return null;
+    const imageUrl = tourImages[tour.tourId];
+    
+    if (!imageUrl) return null;
+    
+    // Return the proper image source object for React Native Image component
+    if (imageUrl.startsWith('file://')) {
+      return { uri: imageUrl };
+    } else if (imageUrl.startsWith('http')) {
+      return { uri: imageUrl };
     }
+    
+    return null;
   };
 
   const renderOfflineTour = ({ item }: { item: OfflineContent }) => {
@@ -191,7 +237,12 @@ export default function OfflineDownloadsScreen() {
               source={imageSource}
               style={styles.tourImage}
               resizeMode="cover"
-              onError={() => console.warn('Failed to load offline tour image')}
+              onError={(error) => {
+                console.warn('Failed to load offline tour image:', error.nativeEvent.error);
+              }}
+              onLoad={() => {
+                console.log(`✅ Successfully loaded image for tour ${item.tourId}`);
+              }}
             />
           ) : (
             <View style={styles.imagePlaceholder}>
@@ -351,13 +402,15 @@ export default function OfflineDownloadsScreen() {
               </View>
             </View>
 
-            {offlineTours.length === 0 && (<View style={styles.storageItem}>
-              <Ionicons name="cloud-done" size={24} color="#5CC4C4" />
-              <View style={styles.storageText}>
-                <Text style={styles.storageNumber}>Offline</Text>
-                <Text style={styles.storageLabel}>Ready</Text>
+            {offlineTours.length === 0 && (
+              <View style={styles.storageItem}>
+                <Ionicons name="cloud-done" size={24} color="#5CC4C4" />
+                <View style={styles.storageText}>
+                  <Text style={styles.storageNumber}>Offline</Text>
+                  <Text style={styles.storageLabel}>Ready</Text>
+                </View>
               </View>
-            </View>)}
+            )}
           </View>
 
           {offlineTours.length > 0 && (
@@ -419,7 +472,6 @@ const styles = StyleSheet.create({
   connectionStatus: {
     padding: 8,
   },
-  // NEW: Warning container
   warningContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -477,8 +529,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ff4444',
-  
-    
   },
   clearAllText: {
     color: '#ff4444',
@@ -629,7 +679,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 8,
   },
-  // NEW: Offline notice
   offlineNotice: {
     flexDirection: 'row',
     alignItems: 'center',

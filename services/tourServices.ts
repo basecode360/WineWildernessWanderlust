@@ -11,12 +11,36 @@ const TOUR_AUDIO_BUCKET = "tour_audio";
 // Check network connectivity
 const isNetworkAvailable = async (): Promise<boolean> => {
   try {
-    const response = await fetch("https://www.google.com/generate_204", {
-      method: "HEAD",
-      cache: "no-cache",
-      timeout: 5000,
-    });
-    return response.ok;
+    // Try multiple endpoints for better reliability
+    const endpoints = [
+      "https://www.google.com/generate_204",
+      "https://httpbin.org/status/200",
+      "https://jsonplaceholder.typicode.com/posts/1"
+    ];
+    
+    for (const endpoint of endpoints) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const response = await fetch(endpoint, {
+          method: "HEAD",
+          cache: "no-cache",
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          return true;
+        }
+      } catch (error) {
+        // Try next endpoint
+        continue;
+      }
+    }
+    
+    return false;
   } catch {
     return false;
   }
@@ -273,7 +297,7 @@ const fetchToursFromSupabase = async (): Promise<Tour[]> => {
 };
 
 // Fetch single tour from Supabase (online only)
-const fetchTourFromSupabase = async (tourId: string): Promise<Tour | null> => {
+ const fetchTourFromSupabase = async (tourId: string): Promise<Tour | null> => {
   console.log(`🌐 Fetching tour ${tourId} from Supabase`);
   
   const { data: tour, error: tourError } = await supabase
@@ -285,17 +309,23 @@ const fetchTourFromSupabase = async (tourId: string): Promise<Tour | null> => {
   if (tourError) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${tourError.message}`);
   if (!tour) return null;
 
-  const { data: stops, error: stopsError } = await supabase
-    .from("stops")
-    .select("*")
-    .eq("tour_id", tourId)
-    .order("order_index");
+
+    const { data: stops, error: stopsError } = await supabase
+  .from("stops")
+  .select("*")
+  .eq("tour_id", tourId)
+  .order("order_index", { ascending: true, nullsFirst: false }); // set what you want explicitly
+
     
-  if (stopsError) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${stopsError.message}`);
+if (stopsError) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${stopsError.message}`);
+
+// ADD this null check
+const safeStops = stops || [];
+
 
   // Transform stops with proper offline/online URL handling
-  const tourStops: TourStop[] = await Promise.all(
-    stops.map(async (stop) => ({
+const tourStops: TourStop[] = await Promise.all(
+  safeStops.map(async (stop) => ({
       id: stop.id,
       title: stop.title,
       type: stop.type,

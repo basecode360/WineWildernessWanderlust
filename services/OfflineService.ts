@@ -1,4 +1,4 @@
-// services/OfflineService.ts - Alternative version with fixed exports
+// services/OfflineService.ts - Fixed version with all improvements
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { Tour } from '../types/tour';
@@ -17,6 +17,7 @@ let offlineServiceInstance: OfflineService | null = null;
 
 export class OfflineService {
   private baseDir: string;
+  private downloadCancellationTokens = new Map<string, boolean>();
 
   constructor() {
     this.baseDir = `${FileSystem.documentDirectory}offline_tours/`;
@@ -67,7 +68,12 @@ export class OfflineService {
         }
 
         // Download file with timeout
-        const downloadResult = await FileSystem.downloadAsync(url, localPath);
+        const downloadResult = await Promise.race([
+          FileSystem.downloadAsync(url, localPath),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Download timeout')), 30000) // 30 second timeout
+          )
+        ]) as FileSystem.FileSystemDownloadResult;
         
         if (downloadResult.status === 200) {
           // Verify file was actually downloaded
@@ -107,8 +113,9 @@ export class OfflineService {
   }
 
   // Get safe filename from URL or path
-  private getSafeFilename(path: string): string {
-    return path.replace(/[^a-zA-Z0-9._-]/g, '_');
+  private getSafeFilename(path: string, index?: number): string {
+    const cleaned = path.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return index ? `${cleaned}_${index}` : cleaned;
   }
 
   // Extract file extension from URL
@@ -124,6 +131,12 @@ export class OfflineService {
       const extension = parts.length > 1 ? parts[parts.length - 1] : '';
       return extension ? `.${extension}` : '';
     }
+  }
+
+  // Cancel download method
+  async cancelDownload(tourId: string): Promise<void> {
+    this.downloadCancellationTokens.set(tourId, true);
+    console.log(`❌ Download cancellation requested for ${tourId}`);
   }
 
   // Download tour with all assets
@@ -192,6 +205,11 @@ export class OfflineService {
 
       // Download images
       for (const img of imagesToDownload) {
+        // Check for cancellation
+        if (this.downloadCancellationTokens.get(tour.id)) {
+          throw new Error('Download cancelled by user');
+        }
+
         onProgress?.(downloadedFiles, totalFiles, `Downloading image: ${img.filename}`);
         
         const localPath = `${imageDir}${this.getSafeFilename(img.filename)}`;
@@ -211,6 +229,11 @@ export class OfflineService {
 
       // Download audio files
       for (const audio of audiosToDownload) {
+        // Check for cancellation
+        if (this.downloadCancellationTokens.get(tour.id)) {
+          throw new Error('Download cancelled by user');
+        }
+
         onProgress?.(downloadedFiles, totalFiles, `Downloading audio: ${audio.filename}`);
         
         const localPath = `${audioDir}${this.getSafeFilename(audio.filename)}`;
@@ -269,11 +292,18 @@ export class OfflineService {
       console.log(`📊 Total size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
 
       onProgress?.(totalFiles, totalFiles, 'Download completed!');
+      
+      // Clean up cancellation token
+      this.downloadCancellationTokens.delete(tour.id);
+      
       return true;
 
     } catch (error) {
       console.error(`❌ Error downloading tour ${tour.id}:`, error);
       onProgress?.(0, 0, 'Download failed');
+      
+      // Clean up cancellation token
+      this.downloadCancellationTokens.delete(tour.id);
       
       // Clean up partial download
       try {

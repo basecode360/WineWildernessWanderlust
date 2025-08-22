@@ -19,6 +19,7 @@ export interface TourStop {
   isPlayed: boolean;
   address?: string;
   tips?: string;
+  order_index:number,
 }
 
 export interface Tour {

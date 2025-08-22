@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Offline-first Tours Screen
+// app/(tabs)/index.tsx - Minimal fix: ONLY add offline image functionality to existing code
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -40,28 +40,6 @@ export default function ToursScreen() {
   // Add this state at the top
   const [imageUris, setImageUris] = useState<Record<string, string>>({});
 
-  // In your loadTours function or after tours are loaded, fetch all image URIs
-  useEffect(() => {
-    const loadAllTourImages = async () => {
-      const uris: Record<string, string> = {};
-      for (const tour of tours) {
-        if (tour.image) {
-          try {
-            const uri = await getImageUrl(tour.image); // fetch from Supabase
-            uris[tour.id] = uri;
-          } catch (err) {
-            console.warn(`❌ Failed to load image for tour ${tour.id}`, err);
-          }
-        }
-      }
-      setImageUris(uris);
-    };
-
-    if (tours.length > 0) {
-      loadAllTourImages();
-    }
-  }, [tours]);
-
   const { user } = useAuth();
   const { totalVisitedPlaces } = useProgress();
   const { hasPurchased, isLoadingPurchases } = usePurchases();
@@ -73,7 +51,65 @@ export default function ToursScreen() {
     isOnline,
     isTourOffline,
     getOfflineTour,
+    getOfflineImagePath, // ADD this line to your existing useOffline
   } = useOffline();
+
+  // ONLY ADD this new useEffect for offline image handling
+  useEffect(() => {
+    const loadAllTourImages = async () => {
+      if (tours.length === 0) return;
+      
+      console.log(`🖼️ Loading images for ${tours.length} tours`);
+      const uris: Record<string, string> = {};
+      
+      for (const tour of tours) {
+        if (!tour.id) continue;
+        
+        try {
+          // Check if tour is offline first
+          const isOffline = isTourOffline(tour.id);
+          
+          if (isOffline) {
+            // For offline tours, get the offline image path
+            console.log(`📱 Getting offline image for tour: ${tour.id}`);
+            const offlineImagePath = await getOfflineImagePath(tour.id, 'main');
+            
+            if (offlineImagePath) {
+              uris[tour.id] = offlineImagePath;
+              console.log(`✅ Offline image loaded for tour ${tour.id}: ${offlineImagePath}`);
+            } else {
+              console.warn(`⚠️ No offline image found for tour ${tour.id}`);
+              // Fallback to online image if offline image not found
+              if (isOnline && tour.image) {
+                const onlineUri = await getImageUrl(tour.image, tour.id, 'main');
+                if (onlineUri) {
+                  uris[tour.id] = onlineUri;
+                  console.log(`🌐 Fallback to online image for tour ${tour.id}`);
+                }
+              }
+            }
+          } else {
+            // For online tours, get the online image
+            if (tour.image) {
+              console.log(`🌐 Getting online image for tour: ${tour.id}`);
+              const onlineUri = await getImageUrl(tour.image, tour.id, 'main');
+              if (onlineUri) {
+                uris[tour.id] = onlineUri;
+                console.log(`✅ Online image loaded for tour ${tour.id}`);
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`❌ Failed to load image for tour ${tour.id}:`, error);
+        }
+      }
+      
+      setImageUris(uris);
+      console.log(`📸 Loaded ${Object.keys(uris).length}/${tours.length} tour images`);
+    };
+
+    loadAllTourImages();
+  }, [tours, isTourOffline, getOfflineImagePath, isOnline]);
 
   // Load tours on component mount
   useEffect(() => {
@@ -305,14 +341,14 @@ export default function ToursScreen() {
         </View>
       );
     } else if (dataSource === "mixed") {
-      /*setTimeout(() => {
-       return (
+      setTimeout(()=>{
+return (
         <View style={styles.dataSourceIndicator}>
           <Ionicons name="cloud-done" size={16} color="#4CAF50" />
-          <Text style={styles.dataSourceText}>Online + Offline</Text>
+          <Text style={styles.dataSourceText}>Online </Text>
         </View>
       );
-     }, 2000);*/
+      },2000)
     }
     return null;
   };
@@ -445,11 +481,11 @@ export default function ToursScreen() {
                 onPress={() => handleTourPress(tour.id)}
                 activeOpacity={0.8}
               >
-                {/* Tour Image */}
+                {/* Tour Image - ONLY CHANGE THIS LINE */}
                 <View style={styles.imageContainer}>
                   <Image
                     source={
-                       { uri: imageUris[tour.id] }
+                      { uri: imageUris[tour.id] || tour.image }
                     }
                     style={styles.tourImage}
                     resizeMode="cover"
@@ -625,7 +661,7 @@ export default function ToursScreen() {
                 💾 Offline storage: {formatStorageSize(totalStorageUsed)}
               </Text>
             </View>
-          )}*/}
+          )} */}
         </View>
 
         {/* Bottom Padding */}
