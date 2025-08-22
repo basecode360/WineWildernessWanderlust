@@ -1,7 +1,7 @@
-// app/tour/[id].tsx - Updated Tour Detail Screen with dynamic Supabase data
+// app/tour/[id].tsx - Fixed Tour Detail Screen with async image loading
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react"; // ADDED: useEffect
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,20 +15,22 @@ import {
 } from "react-native";
 import PaymentSheet from "../../components/payment/PaymentSheet";
 import { useOffline } from "../../contexts/OfflineContext";
-import { usePurchases } from "../../contexts/PurchaseContext.tsx";
-// CHANGED: Import from services instead of data
+import { usePurchases } from "../../contexts/PurchaseContext";
 import { getImageUrl, getTourById } from "../../services/tourServices";
-import { Tour, TourStop } from "../../types/tour"; // ADDED: Tour type
-import { ERROR_MESSAGES } from "../../utils/constants"; // ADDED: Error messages
-// REMOVED: import { getImageAsset } from '../../utils/imageAssets';
+import { Tour, TourStop } from "../../types/tour";
+import { ERROR_MESSAGES } from "../../utils/constants";
 
 export default function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
-  // NEW: State for dynamic tour data
+  // Tour state
   const [tour, setTour] = useState<Tour | null>(null);
   const [isLoadingTour, setIsLoadingTour] = useState(true);
   const [tourError, setTourError] = useState<string | null>(null);
+
+  // Image URLs state - NEW: Added state for resolved image URLs
+  const [tourImageUrl, setTourImageUrl] = useState<string | null>(null);
+  const [stopImageUrls, setStopImageUrls] = useState<Map<string, string>>(new Map());
 
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
 
@@ -43,14 +45,49 @@ export default function TourDetailScreen() {
     cancelDownload,
   } = useOffline();
 
-  // NEW: Load tour data on component mount
+  // Load tour data on component mount
   useEffect(() => {
     if (id) {
       loadTour(id as string);
     }
   }, [id]);
 
-  // NEW: Function to load tour from Supabase
+  // NEW: Load image URLs when tour changes
+  useEffect(() => {
+    if (tour) {
+      loadImageUrls();
+    }
+  }, [tour]);
+
+  // NEW: Function to load all image URLs asynchronously
+  const loadImageUrls = async () => {
+    if (!tour) return;
+
+    try {
+      // Load main tour image
+      const mainImageUrl = await getImageUrl(tour.image, tour.id, 'main');
+      setTourImageUrl(mainImageUrl);
+
+      // Load stop images
+      const stopImageMap = new Map<string, string>();
+      
+      for (const stop of tour.stops) {
+        if (stop.image) {
+          const imageKey = `${stop.id}_image`;
+          const stopImageUrl = await getImageUrl(stop.image, tour.id, imageKey);
+          if (stopImageUrl) {
+            stopImageMap.set(stop.id, stopImageUrl);
+          }
+        }
+      }
+      
+      setStopImageUrls(stopImageMap);
+    } catch (error) {
+      console.warn('⚠️ Error loading image URLs:', error);
+    }
+  };
+
+  // Function to load tour from Supabase
   const loadTour = async (tourId: string) => {
     try {
       setIsLoadingTour(true);
@@ -185,6 +222,8 @@ export default function TourDetailScreen() {
       const success = await downloadTour(id as string);
       if (success) {
         Alert.alert("Download Complete", "Tour is now available offline!");
+        // Reload image URLs to get offline versions
+        await loadImageUrls();
       } else {
         Alert.alert(
           "Download Failed",
@@ -199,7 +238,7 @@ export default function TourDetailScreen() {
     }
   };
 
-  // NEW: Loading state
+  // Loading state
   if (isLoadingTour) {
     return (
       <View style={styles.loadingContainer}>
@@ -209,7 +248,7 @@ export default function TourDetailScreen() {
     );
   }
 
-  // NEW: Error state
+  // Error state
   if (tourError || !tour) {
     return (
       <View style={styles.errorContainer}>
@@ -261,14 +300,15 @@ export default function TourDetailScreen() {
     <ScrollView style={styles.container}>
       {/* Tour Header Image */}
       <View style={styles.imageContainer}>
-        {tour.image ? (
+        {/* FIXED: Use resolved tourImageUrl instead of calling getImageUrl directly */}
+        {tourImageUrl ? (
           <Image
-            source={{ uri: getImageUrl(tour.image) ?? undefined }}
+            source={{ uri: tourImageUrl }}
             style={styles.tourImage}
             resizeMode="cover"
             onError={(e) => {
               console.log("❌ Tour detail image error:", e.nativeEvent.error);
-              console.log("❌ Failed tour image source:", tour.image);
+              console.log("❌ Failed tour image source:", tourImageUrl);
             }}
             onLoad={() => {
               console.log("✅ Tour detail image loaded");
@@ -466,13 +506,12 @@ export default function TourDetailScreen() {
   );
 }
 
-// UPDATED: Styles with new loading and error states
+// Styles remain the same
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f8f9fa",
   },
-  // NEW: Loading state styles
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -486,7 +525,6 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
   },
-  // UPDATED: Error container styles
   errorContainer: {
     flex: 1,
     justifyContent: "center",
@@ -508,7 +546,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 24,
   },
-  // NEW: Button styles for error state
   retryButton: {
     backgroundColor: "#5CC4C4",
     paddingHorizontal: 24,

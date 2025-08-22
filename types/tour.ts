@@ -15,7 +15,7 @@ export interface TourStop {
   audioUrl?: string; // new field for dynamic download
   transcript: string;
   image: string;
-  imageUrl?: string; // new field for dynamic download
+  image_path?: string; // new field for dynamic download
   isPlayed: boolean;
   address?: string;
   tips?: string;
@@ -29,7 +29,7 @@ export interface Tour {
   duration: string;
   distance: string;
   image: string;
-  imageUrl?: string; // new
+  image_path?: string; // new
   isPurchased: boolean;
   isDownloaded: boolean;
   stops: TourStop[];
