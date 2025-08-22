@@ -26,6 +26,25 @@ import { AudioState, LocationData, Tour, TourStop } from "../../../types/tour";
 const { width: screenWidth } = Dimensions.get("window");
 const PROXIMITY_THRESHOLD = 100;
 
+// Helper function to ensure coordinates are valid
+const ensureValidCoordinates = (lat?: number | null, lng?: number | null) => {
+  return {
+    lat: typeof lat === 'number' && !isNaN(lat) ? lat : 0,
+    lng: typeof lng === 'number' && !isNaN(lng) ? lng : 0,
+  };
+};
+
+// Helper function to ensure trigger coordinates are valid (can be null)
+const ensureValidTriggerCoordinates = (triggerLat?: number | null, triggerLng?: number | null) => {
+  if (triggerLat != null && triggerLng != null && !isNaN(triggerLat) && !isNaN(triggerLng)) {
+    return {
+      lat: triggerLat,
+      lng: triggerLng,
+    };
+  }
+  return null; // Return null if trigger coordinates are not available
+};
+
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { markStopCompleted } = useProgress();
@@ -62,8 +81,6 @@ export default function TourPlayerScreen() {
     if (id) loadTour(id);
   }, [id]);
 
-  
-
   const loadTour = async (tourId: string) => {
     console.log("current tour id is ", tourId);
     try {
@@ -72,12 +89,24 @@ export default function TourPlayerScreen() {
       if (isOnline) {
         const { data, error } = await supabase
           .from("tours")
-          .select("*, stops(*)") // assuming stops are in a related table
+          .select("*, stops(*)")
           .eq("id", tourId)
           .single();
 
         if (error) throw error;
-        setTour(data);
+
+        // Transform the data to match expected structure
+        const transformedTour = {
+          ...data,
+          stops: data.stops.map((stop: any) => ({
+            ...stop,
+            coordinates: ensureValidCoordinates(stop.lat, stop.lng),
+            triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
+            isPlayed: false,
+          }))
+        };
+
+        setTour(transformedTour);
         checkOfflineMode(tourId);
         console.log(`✅ Online tour loaded: ${data.title}`);
       } else {
@@ -105,26 +134,24 @@ export default function TourPlayerScreen() {
   };
 
   // Preload stop images
-useEffect(() => {
-  if (!tour) return;
+  useEffect(() => {
+    if (!tour) return;
 
-  const loadImages = async () => {
-    const imagesMap: Record<string, string> = {};
+    const loadImages = async () => {
+      const imagesMap: Record<string, string> = {};
 
-    await Promise.all(
-      tour.stops.map(async (stop) => {
-        const uri = await getImageUrl(stop.image_path, tour.id);
-        imagesMap[stop.id] = uri || '';
-      })
-    );
+      await Promise.all(
+        tour.stops.map(async (stop) => {
+          const uri = await getImageUrl(stop.image_path, tour.id);
+          imagesMap[stop.id] = uri || '';
+        })
+      );
 
-    setStopImages(imagesMap);
-  };
+      setStopImages(imagesMap);
+    };
 
-  loadImages();
-}, [tour]);
-
-
+    loadImages();
+  }, [tour]);
 
   useEffect(() => {
     requestLocationPermission();
@@ -181,7 +208,16 @@ useEffect(() => {
     if (!tour) return;
     tour.stops.forEach((stop, index) => {
       if (stop.isPlayed) return;
+      
+      // Use triggerCoordinates if available, otherwise use main coordinates
       const triggerCoords = stop.triggerCoordinates || stop.coordinates;
+      
+      // Safety check to ensure coordinates exist
+      if (!triggerCoords || typeof triggerCoords.lat !== 'number' || typeof triggerCoords.lng !== 'number') {
+        console.warn(`Stop ${stop.id} has invalid coordinates:`, triggerCoords);
+        return;
+      }
+      
       const distance = calculateDistance(
         location.latitude,
         location.longitude,
@@ -235,20 +271,12 @@ useEffect(() => {
         playThroughEarpieceAndroid: false,
       });
 
-     const audioUri = await getAudioUrl(stop.audio_path, tour.id, stop.id);
-
-if (!audioUri) {
-  Alert.alert(
-    "Audio Not Available",
-    `This audio is not downloaded or available: ${stop.title}`
-  );
-  return;
-}
+      const audioUri = await getAudioUrl(stop.audio_path, tour.id, stop.id);
 
       if (!audioUri) {
         Alert.alert(
           "Audio Not Available",
-          `This audio is not available: ${stop.title}`
+          `This audio is not downloaded or available: ${stop.title}`
         );
         return;
       }
@@ -297,7 +325,14 @@ if (!audioUri) {
   };
 
   const openDirections = (stop: TourStop) => {
-const { lat, lng } = stop.coordinates || { lat: 0, lng: 0 };
+    // Safety check for coordinates
+    const coords = stop.coordinates;
+    if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
+      Alert.alert("Error", "This location doesn't have valid coordinates");
+      return;
+    }
+    
+    const { lat, lng } = coords;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
     Linking.canOpenURL(url).then((supported) =>
       supported
@@ -385,18 +420,26 @@ const { lat, lng } = stop.coordinates || { lat: 0, lng: 0 };
             showsUserLocation={isLocationEnabled}
             followsUserLocation={isLocationEnabled}
           >
-            {tour.stops.map((stop) => (
-              <Marker
-                key={stop.id}
-                coordinate={{
-                  latitude: stop.coordinates.lat,
-                  longitude: stop.coordinates.lng,
-                }}
-                title={stop.title}
-                description={stop.type.replace("_", " ")}
-                pinColor={stop.isPlayed ? "#4CAF50" : "#5CC4C4"}
-              />
-            ))}
+            {tour.stops.map((stop) => {
+              // Safety check for map markers
+              const coords = stop.coordinates;
+              if (!coords || typeof coords.lat !== 'number' || typeof coords.lng !== 'number') {
+                return null;
+              }
+              
+              return (
+                <Marker
+                  key={stop.id}
+                  coordinate={{
+                    latitude: coords.lat,
+                    longitude: coords.lng,
+                  }}
+                  title={stop.title}
+                  description={stop.type.replace("_", " ")}
+                  pinColor={stop.isPlayed ? "#4CAF50" : "#5CC4C4"}
+                />
+              );
+            })}
           </MapView>
           <TouchableOpacity
             style={styles.closeMapButton}
@@ -476,7 +519,7 @@ const { lat, lng } = stop.coordinates || { lat: 0, lng: 0 };
                 <Text style={styles.stopType}>
                   {stop.type.replace("_", " ")}
                 </Text>
-                {currentLocation && (
+                {currentLocation && stop.coordinates && (
                   <Text style={styles.stopDistance}>
                     {Math.round(
                       calculateDistance(

@@ -20,6 +20,25 @@ const isNetworkAvailable = async (): Promise<boolean> => {
   }
 };
 
+// Helper function to ensure coordinates are valid
+const ensureValidCoordinates = (lat?: number | null, lng?: number | null) => {
+  return {
+    lat: typeof lat === 'number' && !isNaN(lat) ? lat : 0,
+    lng: typeof lng === 'number' && !isNaN(lng) ? lng : 0,
+  };
+};
+
+// Helper function to ensure trigger coordinates are valid (can be null)
+const ensureValidTriggerCoordinates = (triggerLat?: number | null, triggerLng?: number | null) => {
+  if (triggerLat != null && triggerLng != null && !isNaN(triggerLat) && !isNaN(triggerLng)) {
+    return {
+      lat: triggerLat,
+      lng: triggerLng,
+    };
+  }
+  return null; // Return null if trigger coordinates are not available
+};
+
 // Construct image URL
 export const getImageUrl = (imagePath: string | null): string | null => {
   if (!imagePath) return null;
@@ -76,7 +95,8 @@ export const getAllTours = async (): Promise<Tour[]> => {
           : getImageUrl(t.tourData.image_path) || "",
         stops: t.tourData.stops.map((stop) => ({
           ...stop,
-          coordinates: stop.coordinates || { lat: 0, lng: 0 },
+          coordinates: ensureValidCoordinates(stop.lat, stop.lng),
+          triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
           image: stop.image
             ? `file://${t.imageFiles[stop.image] || stop.image}`
             : getImageUrl(stop.image_path) || "",
@@ -116,10 +136,8 @@ export const getTourById = async (tourId: string): Promise<Tour | null> => {
         : getImageUrl(offlineContent.tourData.image_path) || "",
       stops: offlineContent.tourData.stops.map((stop) => ({
         ...stop,
-        coordinates:
-          stop.lat != null && stop.lng != null
-            ? { lat: stop.lat, lng: stop.lng }
-            : { lat: 0, lng: 0 },
+        coordinates: ensureValidCoordinates(stop.lat, stop.lng),
+        triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
         image: offlineContent.imageFiles[stop.image]
           ? `file://${offlineContent.imageFiles[stop.image]}`
           : stop.image || getImageUrl(stop.image) || "",
@@ -188,10 +206,8 @@ const fetchTourFromSupabase = async (tourId: string): Promise<Tour | null> => {
       id: stop.id,
       title: stop.title,
       type: stop.type,
-      coordinates:
-        stop.lat != null && stop.lng != null
-          ? { lat: stop.lat, lng: stop.lng }
-          : { lat: 0, lng: 0 }, // fallback
+      coordinates: ensureValidCoordinates(stop.lat, stop.lng),
+      triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
       audio: stop.audio_path
         ? await getAudioUrl(stop.audio_path, tour.id, stop.id)
         : "",
