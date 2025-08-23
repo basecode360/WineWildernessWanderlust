@@ -1,4 +1,4 @@
-// app/tour/player/[id].tsx - Enhanced with auto-play next stop feature
+// app/tour/player/[id].tsx - Enhanced with complete progress tracking integration
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
@@ -49,7 +49,18 @@ const ensureValidTriggerCoordinates = (triggerLat?: number | null, triggerLng?: 
 
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { markStopCompleted } = useProgress();
+  
+  // UPDATED: Enhanced progress hook usage
+  const {
+    markStopCompleted,
+    isStopCompleted,
+    getCompletedStopsForTour,
+    isLoading: progressLoading,
+    forceResetAllProgress, // Add this
+    debugShowStoredData, // Add this
+    testDatabaseConnection, // Add this
+  } = useProgress();
+  
   const { getOfflineTour, getOfflineAudioPath, getOfflineImagePath, isOnline } = useOffline();
 
   const [tour, setTour] = useState<Tour | null>(null);
@@ -224,18 +235,31 @@ export default function TourPlayerScreen() {
     stopCurrentAudio();
   }, [currentStopIndex]);
 
-  // NEW: Auto-play countdown effect
+  // FIXED: Auto-play countdown effect - always move to next stop
   useEffect(() => {
     if (autoPlayCountdown > 0) {
       const timer = setTimeout(() => {
         setAutoPlayCountdown(autoPlayCountdown - 1);
       }, 1000);
       return () => clearTimeout(timer);
-    } else if (autoPlayCountdown === 0 && autoPlayTimerRef.current) {
-      // When countdown reaches 0, play next stop
-      playNextStop();
+    } else if (autoPlayCountdown === 0 && autoPlayTimerRef.current && tour) {
+      // When countdown reaches 0, always move to next stop
+      console.log(`🚀 Countdown reached 0, advancing from stop ${currentStopIndex} to ${currentStopIndex + 1}`);
+      
+      if (currentStopIndex < tour.stops.length - 1) {
+        const nextIndex = currentStopIndex + 1;
+        setCurrentStopIndex(nextIndex);
+        
+        // Clear the timer reference
+        autoPlayTimerRef.current = null;
+        
+        // Small delay to ensure state updates, then play next stop
+        setTimeout(() => {
+          triggerAudioForStop(tour.stops[nextIndex], nextIndex);
+        }, 300);
+      }
     }
-  }, [autoPlayCountdown]);
+  }, [autoPlayCountdown, currentStopIndex, tour]);
 
   const initializeLocation = async () => {
     try {
@@ -302,12 +326,20 @@ export default function TourPlayerScreen() {
     });
   };
 
+  // Enhanced stop current audio function
   const stopCurrentAudio = async () => {
+    console.log("🛑 Stopping current audio");
+    
     if (audioRef.current) {
       try {
+        // Get current status before unloading
+        const status = await audioRef.current.getStatusAsync();
+        console.log("Audio status before stop:", status);
+        
+        await audioRef.current.stopAsync();
         await audioRef.current.unloadAsync();
       } catch (error) {
-        console.warn("⚠️ Error unloading audio:", error);
+        console.warn("⚠️ Error stopping/unloading audio:", error);
       }
       audioRef.current = null;
     }
@@ -319,6 +351,7 @@ export default function TourPlayerScreen() {
     }
     setAutoPlayCountdown(0);
     
+    // Reset audio state completely
     setAudioState({
       isPlaying: false,
       currentStopId: null,
@@ -327,11 +360,12 @@ export default function TourPlayerScreen() {
     });
   };
 
-  // NEW: Enhanced audio playback listener with auto-play
+  // FIXED: Enhanced audio playback listener with proper progression logic
   const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
     sound.setOnPlaybackStatusUpdate(async (status) => {
       if (!status.isLoaded) return;
       
+      // More robust state updates
       setAudioState((prev) => ({
         ...prev,
         position: status.positionMillis || 0,
@@ -341,54 +375,76 @@ export default function TourPlayerScreen() {
       }));
       
       if (status.didJustFinish && tour) {
-        console.log(`🎵 Audio finished for stop: ${stopId}`);
+        console.log(`🎵 Audio finished for stop: ${stopId} (index: ${currentStopIndex})`);
         
-        // Mark stop as completed
-        await markStopCompleted(tour.id, stopId);
-        setAudioState((prev) => ({ ...prev, isPlaying: false, position: 0 }));
+        // Mark stop as completed (only if not already completed to avoid duplicates)
+        try {
+          const isAlreadyCompleted = checkStopCompletion(stopId);
+          if (!isAlreadyCompleted) {
+            console.log(`🎯 Marking stop as completed: ${stopId} for tour: ${tour.id}`);
+            await markStopCompleted(tour.id, stopId);
+            console.log(`✅ Stop ${stopId} marked as completed in progress tracking`);
+          } else {
+            console.log(`ℹ️ Stop ${stopId} was already completed, skipping database insert`);
+          }
+        } catch (error) {
+          console.error('❌ Error marking stop as completed:', error);
+          console.error('❌ Error details:', {
+            stopId,
+            tourId: tour.id,
+            error: error instanceof Error ? error.message : error
+          });
+        }
+        
+        // Reset audio state properly
+        setAudioState((prev) => ({ 
+          ...prev, 
+          isPlaying: false, 
+          position: 0,
+          currentStopId: null
+        }));
         
         // Clean up current audio
         if (audioRef.current) {
-          await audioRef.current.unloadAsync();
+          try {
+            await audioRef.current.unloadAsync();
+          } catch (error) {
+            console.warn("Error unloading finished audio:", error);
+          }
           audioRef.current = null;
         }
         
-        // NEW: Start auto-play countdown if enabled and there's a next stop
-        if (isAutoPlayEnabled && currentStopIndex < tour.stops.length - 1) {
-          console.log("🔄 Starting auto-play countdown...");
+        // FIXED: Always progress to next stop if auto-play enabled and there's a next stop
+        // Don't check if next stop is completed - just move forward
+        const hasNextStop = currentStopIndex < tour.stops.length - 1;
+        
+        if (isAutoPlayEnabled && hasNextStop) {
+          console.log(`🔄 Auto-play enabled, moving to next stop (${currentStopIndex + 1}/${tour.stops.length})`);
           startAutoPlayCountdown();
-        } else if (currentStopIndex >= tour.stops.length - 1) {
-          console.log("🎉 Tour completed!");
+        } else if (!hasNextStop) {
+          console.log("🎉 Tour completed - reached final stop!");
           showTourCompletedMessage();
+        } else {
+          console.log("⏹️ Auto-play disabled, staying on current stop");
         }
       }
     });
   };
 
-  // NEW: Start auto-play countdown
+  // FIXED: Start auto-play countdown - simplified
   const startAutoPlayCountdown = () => {
+    console.log(`⏰ Starting 5-second countdown for auto-play (current index: ${currentStopIndex})`);
     setAutoPlayCountdown(5); // 5 second countdown
     
+    // Set timer reference for cleanup purposes
     autoPlayTimerRef.current = setTimeout(() => {
-      if (isAutoPlayEnabled) {
-        playNextStop();
-      }
+      // Timer cleanup will be handled by useEffect
+      console.log(`⏰ Auto-play timer completed`);
     }, 5000);
   };
 
-  // NEW: Play next stop
-  const playNextStop = () => {
-    if (!tour || currentStopIndex >= tour.stops.length - 1) return;
-    
-    console.log("▶️ Auto-playing next stop...");
-    const nextIndex = currentStopIndex + 1;
-    setCurrentStopIndex(nextIndex);
-    
-    // Small delay to ensure state updates
-    setTimeout(() => {
-      triggerAudioForStop(tour.stops[nextIndex], nextIndex);
-    }, 500);
-  };
+  // FIXED: Simplified playNextStop - remove since we handle it in useEffect
+  // This function is now handled directly in the useEffect for better reliability
 
   // NEW: Cancel auto-play countdown
   const cancelAutoPlay = () => {
@@ -400,11 +456,16 @@ export default function TourPlayerScreen() {
     console.log("⏹️ Auto-play cancelled");
   };
 
-  // NEW: Show tour completed message
+  // UPDATED: Show tour completed message with progress stats
   const showTourCompletedMessage = () => {
+    if (!tour) return;
+    
+    const completedStops = getCompletedStopsForTour(tour.id);
+    const completionRate = Math.round((completedStops.length / tour.stops.length) * 100);
+    
     Alert.alert(
       "🎉 Tour Completed!",
-      "Congratulations! You've finished the entire tour. We hope you enjoyed the experience!",
+      `Congratulations! You've finished the entire tour with ${completionRate}% completion (${completedStops.length}/${tour.stops.length} stops). We hope you enjoyed the experience!`,
       [
         {
           text: "Restart Tour",
@@ -424,9 +485,16 @@ export default function TourPlayerScreen() {
     );
   };
 
+  // Improved triggerAudioForStop function with better state management
   const triggerAudioForStop = async (stop: TourStop, index: number) => {
     if (!tour) return;
+    
+    console.log(`🎵 Triggering audio for stop: ${stop.title} (${stop.id})`);
+    
     try {
+      // Stop any currently playing audio first
+      await stopCurrentAudio();
+      
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         staysActiveInBackground: true,
@@ -459,43 +527,91 @@ export default function TourPlayerScreen() {
         return;
       }
 
+      console.log(`🎵 Creating audio with URI: ${audioUri}`);
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUri },
         { shouldPlay: true, volume: 1.0 }
       );
+      
       audioRef.current = sound;
       setupAudioPlaybackListener(sound, stop.id);
 
+      // Set initial state - audio should be playing
       setAudioState({
         isPlaying: true,
         currentStopId: stop.id,
         position: 0,
         duration: 0,
       });
+      
       setCurrentStopIndex(index);
+      
+      // Update tour stop as played
       setTour((prev) => {
         if (!prev) return prev;
         const updatedStops = [...prev.stops];
         updatedStops[index] = { ...updatedStops[index], isPlayed: true };
         return { ...prev, stops: updatedStops };
       });
+      
+      console.log(`✅ Audio started for stop: ${stop.title}`);
+      
     } catch (error) {
       console.error("❌ Audio playback error:", error);
+      // Reset state on error
+      setAudioState({
+        isPlaying: false,
+        currentStopId: null,
+        position: 0,
+        duration: 0,
+      });
       Alert.alert("Audio Not Available", `Could not play audio for: ${stop.title}`);
     }
   };
 
+  // Fixed toggle audio function with better error handling and state management
   const toggleAudio = async () => {
-    if (!audioRef.current && tour?.stops[currentStopIndex]) {
-      await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex);
-      return;
-    }
     try {
-      if (audioState.isPlaying) await audioRef.current?.pauseAsync();
-      else await audioRef.current?.playAsync();
-      setAudioState((prev) => ({ ...prev, isPlaying: !prev.isPlaying }));
+      // If no audio is loaded, start playing the current stop
+      if (!audioRef.current && tour?.stops[currentStopIndex]) {
+        console.log("🎵 No audio loaded, starting playback for current stop");
+        await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex);
+        return;
+      }
+
+      // If audio exists, toggle play/pause
+      if (audioRef.current) {
+        if (audioState.isPlaying) {
+          console.log("⏸️ Pausing audio");
+          await audioRef.current.pauseAsync();
+          // Immediately update state to show pause icon
+          setAudioState((prev) => ({ ...prev, isPlaying: false }));
+        } else {
+          console.log("▶️ Resuming audio");
+          await audioRef.current.playAsync();
+          // Immediately update state to show play icon
+          setAudioState((prev) => ({ ...prev, isPlaying: true }));
+        }
+      } else {
+        console.warn("⚠️ No audio reference available");
+        // Reset audio state if no reference exists
+        setAudioState((prev) => ({ 
+          ...prev, 
+          isPlaying: false, 
+          currentStopId: null,
+          position: 0,
+          duration: 0
+        }));
+      }
     } catch (error) {
-      Alert.alert("Playback Error", "Could not toggle audio playback");
+      console.error("❌ Toggle audio error:", error);
+      // Reset state on error
+      setAudioState((prev) => ({ 
+        ...prev, 
+        isPlaying: false,
+        currentStopId: null
+      }));
+      Alert.alert("Playback Error", "Could not toggle audio playback. Please try selecting the stop again.");
     }
   };
 
@@ -545,10 +661,24 @@ export default function TourPlayerScreen() {
     );
   };
 
-  const handleStopPress = (stop: TourStop, index: number) => {
+  // Enhanced handle stop press with audio management
+  const handleStopPress = async (stop: TourStop, index: number) => {
+    console.log(`👆 Stop pressed: ${stop.title} (index: ${index})`);
+    
     // Cancel auto-play when user manually selects a stop
     cancelAutoPlay();
-    setCurrentStopIndex(index);
+    
+    // If this is the currently selected stop and audio is playing, just toggle
+    if (index === currentStopIndex && audioRef.current) {
+      await toggleAudio();
+    } else {
+      // Different stop selected, change to it and start playing
+      setCurrentStopIndex(index);
+      // Small delay to ensure state updates, then trigger audio
+      setTimeout(() => {
+        triggerAudioForStop(stop, index);
+      }, 100);
+    }
   };
 
   const handleMapPress = (stop: TourStop) => {
@@ -591,14 +721,39 @@ export default function TourPlayerScreen() {
 
   const currentStop = tour?.stops[currentStopIndex];
   const currentStopImage = currentStop ? stopImages[currentStop.id] : null;
-  const getPlayButtonIcon = () => (audioState.isPlaying ? "pause" : "play");
+  
+  // Improved icon function with debugging
+  const getPlayButtonIcon = () => {
+    const icon = audioState.isPlaying ? "pause" : "play";
+    console.log(`🎭 Icon should be: ${icon} (isPlaying: ${audioState.isPlaying})`);
+    return icon;
+  };
+
+  // ADDED: Get completion stats for current tour
+  const getCompletionStats = () => {
+    if (!tour) return { completed: 0, total: 0, percentage: 0 };
+    
+    const completedStops = getCompletedStopsForTour(tour.id);
+    const completed = completedStops.length;
+    const total = tour.stops.length;
+    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    return { completed, total, percentage };
+  };
+
+  // ADDED: Check if specific stop is completed
+  const checkStopCompletion = (stopId: string) => {
+    return tour ? isStopCompleted(tour.id, stopId) : false;
+  };
 
   // Loading & error states
-  if (isLoadingTour)
+  if (isLoadingTour || progressLoading)
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#5CC4C4" />
-        <Text style={styles.loadingText}>Loading {isOnline ? 'online' : 'offline'} tour...</Text>
+        <Text style={styles.loadingText}>
+          Loading {isOnline ? 'online' : 'offline'} tour{progressLoading ? ' and progress' : ''}...
+        </Text>
       </View>
     );
 
@@ -619,8 +774,35 @@ export default function TourPlayerScreen() {
       </View>
     );
 
+  // ADDED: Get completion stats
+  const stats = getCompletionStats();
+
   return (
     <View style={styles.container}>
+      {/* TEMPORARY: Debug buttons - remove after testing 
+      <View style={styles.debugContainer}>
+        <TouchableOpacity 
+          style={styles.debugButton} 
+          onPress={() => forceResetAllProgress()}
+        >
+          <Text style={styles.debugButtonText}>🧹 CLEAR ALL PROGRESS</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.debugButton, { backgroundColor: 'blue' }]} 
+          onPress={() => debugShowStoredData()}
+        >
+          <Text style={styles.debugButtonText}>🔍 DEBUG STORAGE</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={[styles.debugButton, { backgroundColor: 'green' }]} 
+          onPress={() => testDatabaseConnection()}
+        >
+          <Text style={styles.debugButtonText}>🧪 TEST DATABASE</Text>
+        </TouchableOpacity>
+      </View>*/}
+
       {showMap && (
         <View style={styles.mapContainer}>
           <MapView
@@ -649,7 +831,7 @@ export default function TourPlayerScreen() {
                   }}
                   title={stop.title}
                   description={stop.type.replace("_", " ")}
-                  pinColor={stop.isPlayed ? "#4CAF50" : "#5CC4C4"}
+                  pinColor={checkStopCompletion(stop.id) ? "#4CAF50" : "#5CC4C4"}
                 />
               );
             })}
@@ -663,7 +845,7 @@ export default function TourPlayerScreen() {
         </View>
       )}
 
-      {/* Enhanced Audio Controls with Auto-play Status */}
+      {/* UPDATED: Enhanced Audio Controls with Progress Display */}
       <View style={styles.audioControls}>
         {currentStopImage ? (
           <ImageBackground
@@ -672,7 +854,17 @@ export default function TourPlayerScreen() {
             imageStyle={styles.backgroundImage}
           >
             <View style={styles.audioControlsOverlay}>
-              {/* NEW: Auto-play countdown display */}
+              {/* ADDED: Progress stats at top */}
+              <View style={styles.progressHeader}>
+                <Text style={styles.progressText}>
+                  {stats.completed} of {stats.total} completed ({stats.percentage}%)
+                </Text>
+                <View style={styles.progressBar}>
+                  <View style={[styles.progressFill, { width: `${stats.percentage}%` }]} />
+                </View>
+              </View>
+
+              {/* Auto-play countdown display */}
               {autoPlayCountdown > 0 && (
                 <View style={styles.autoPlayNotification}>
                   <Text style={styles.autoPlayText}>
@@ -691,6 +883,13 @@ export default function TourPlayerScreen() {
                 <Text style={styles.currentStopType}>
                   {currentStop?.type.replace("_", " ").toUpperCase()}
                 </Text>
+                {/* ADDED: Completion indicator for current stop */}
+                {currentStop && checkStopCompletion(currentStop.id) && (
+                  <View style={styles.completedIndicator}>
+                    <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                    <Text style={styles.completedText}>Completed</Text>
+                  </View>
+                )}
               </View>
               
               <View style={styles.controlButtons}>
@@ -716,7 +915,7 @@ export default function TourPlayerScreen() {
                 </TouchableOpacity>
               </View>
               
-              {/* NEW: Auto-play toggle */}
+              {/* Auto-play toggle */}
               <TouchableOpacity 
                 style={styles.autoPlayToggle}
                 onPress={() => setIsAutoPlayEnabled(!isAutoPlayEnabled)}
@@ -734,6 +933,16 @@ export default function TourPlayerScreen() {
           </ImageBackground>
         ) : (
           <View style={styles.audioControlsDefault}>
+            {/* ADDED: Progress stats for default view */}
+            <View style={styles.progressHeader}>
+              <Text style={styles.progressTextDefault}>
+                {stats.completed} of {stats.total} completed ({stats.percentage}%)
+              </Text>
+              <View style={styles.progressBarDefault}>
+                <View style={[styles.progressFillDefault, { width: `${stats.percentage}%` }]} />
+              </View>
+            </View>
+
             {/* Auto-play countdown for default view */}
             {autoPlayCountdown > 0 && (
               <View style={styles.autoPlayNotification}>
@@ -753,6 +962,13 @@ export default function TourPlayerScreen() {
               <Text style={styles.currentStopType}>
                 {currentStop?.type.replace("_", " ").toUpperCase()}
               </Text>
+              {/* ADDED: Completion indicator for current stop in default view */}
+              {currentStop && checkStopCompletion(currentStop.id) && (
+                <View style={styles.completedIndicatorDefault}>
+                  <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                  <Text style={styles.completedTextDefault}>Completed</Text>
+                </View>
+              )}
             </View>
             
             <View style={styles.controlButtons}>
@@ -796,61 +1012,104 @@ export default function TourPlayerScreen() {
         )}
       </View>
 
-      {/* Enhanced Stops List with Map Icons */}
+      {/* UPDATED: Enhanced Stops List with Completion Status */}
       <ScrollView style={styles.stopsList}>
         <Text style={styles.stopsTitle}>
           Tour Stops ({tour.stops.length}){" "}
           {isOfflineMode && (
             <Text style={styles.offlineIndicator}>• Offline</Text>
           )}
+          {stats.completed > 0 && (
+            <Text style={styles.completionIndicator}>• {stats.completed} completed</Text>
+          )}
         </Text>
-        {tour.stops.map((stop, index) => (
-          <TouchableOpacity
-            key={stop.id}
-            style={[
-              styles.stopItem,
-              index === currentStopIndex && styles.currentStopItem,
-              stop.isPlayed && styles.playedStopItem,
-            ]}
-            onPress={() => handleStopPress(stop, index)}
-          >
-            <View style={styles.stopIconContainer}>
-              {stop.isPlayed ? (
-                <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
-              ) : (
-                <Text style={styles.stopNumber}>{index + 1}</Text>
-              )}
-            </View>
-            <View style={styles.stopContent}>
-              {renderStopImage(stop)}
-              <View style={styles.stopTextContent}>
-                <Text style={styles.stopTitle}>{stop.title}</Text>
-                <Text style={styles.stopType}>
-                  {stop.type.replace("_", " ")}
-                </Text>
-                {currentLocation && stop.coordinates && (
-                  <Text style={styles.stopDistance}>
-                    {Math.round(
-                      calculateDistance(
-                        currentLocation.latitude,
-                        currentLocation.longitude,
-                        stop.coordinates.lat,
-                        stop.coordinates.lng
-                      )
-                    )}
-                    m away
-                  </Text>
+        {tour.stops.map((stop, index) => {
+          const isCompleted = checkStopCompletion(stop.id);
+          const isCurrent = index === currentStopIndex;
+          
+          return (
+            <TouchableOpacity
+              key={stop.id}
+              style={[
+                styles.stopItem,
+                isCurrent && styles.currentStopItem,
+                stop.isPlayed && styles.playedStopItem,
+                isCompleted && styles.completedStopItem,
+              ]}
+              onPress={() => handleStopPress(stop, index)}
+            >
+              <View style={styles.stopIconContainer}>
+                {isCompleted ? (
+                  <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+                ) : stop.isPlayed ? (
+                  <Ionicons name="play-circle" size={24} color="#FF9800" />
+                ) : (
+                  <Text style={styles.stopNumber}>{index + 1}</Text>
                 )}
               </View>
-            </View>
-            <TouchableOpacity
-              style={styles.mapButton}
-              onPress={() => handleMapPress(stop)}
-            >
-              <Ionicons name="location" size={20} color="#5CC4C4" />
+              <View style={styles.stopContent}>
+                {renderStopImage(stop)}
+                <View style={styles.stopTextContent}>
+                  <View style={styles.stopTitleRow}>
+                    <Text style={[
+                      styles.stopTitle,
+                      isCompleted && styles.completedStopTitle
+                    ]}>
+                      {stop.title}
+                    </Text>
+                    {isCompleted && (
+                      <View style={styles.completedBadge}>
+                        <Text style={styles.completedBadgeText}>✓</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.stopType}>
+                    {stop.type.replace("_", " ")}
+                    {isCurrent && " • Now Playing"}
+                    {isCompleted && " • Completed"}
+                  </Text>
+                  {currentLocation && stop.coordinates && (
+                    <Text style={styles.stopDistance}>
+                      {Math.round(
+                        calculateDistance(
+                          currentLocation.latitude,
+                          currentLocation.longitude,
+                          stop.coordinates.lat,
+                          stop.coordinates.lng
+                        )
+                      )}
+                      m away
+                    </Text>
+                  )}
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.mapButton}
+                onPress={() => handleMapPress(stop)}
+              >
+                <Ionicons name="location" size={20} color="#5CC4C4" />
+              </TouchableOpacity>
             </TouchableOpacity>
-          </TouchableOpacity>
-        ))}
+          );
+        })}
+
+        {/* ADDED: Completion Summary at bottom */}
+        {stats.completed > 0 && (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeader}>
+              <Ionicons name="trophy" size={24} color="#5CC4C4" />
+              <Text style={styles.summaryTitle}>Tour Progress</Text>
+            </View>
+            <Text style={styles.summaryText}>
+              Great progress! You've completed {stats.completed} out of {stats.total} stops ({stats.percentage}%).
+            </Text>
+            {stats.percentage === 100 && (
+              <Text style={styles.congratsText}>
+                🎉 Congratulations! You've completed the entire tour!
+              </Text>
+            )}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -944,6 +1203,51 @@ const styles = StyleSheet.create({
     minHeight: 150,
     justifyContent: 'center',
   },
+  // NEW: Progress header styles
+  progressHeader: {
+    position: "absolute",
+    top: 10,
+    left: 20,
+    right: 20,
+    zIndex: 1,
+  },
+  progressText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 5,
+  },
+  progressBar: {
+    height: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    borderRadius: 2,
+    marginTop: 4,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#4CAF50",
+    borderRadius: 2,
+  },
+  progressTextDefault: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  progressBarDefault: {
+    height: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    borderRadius: 2,
+    marginTop: 4,
+  },
+  progressFillDefault: {
+    height: "100%",
+    backgroundColor: "#4CAF50",
+    borderRadius: 2,
+  },
   currentStopInfo: {
     alignItems: "center",
     marginBottom: 16,
@@ -965,6 +1269,37 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
+  },
+  // NEW: Completion indicator styles
+  completedIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: "rgba(76, 175, 80, 0.2)",
+    borderRadius: 12,
+  },
+  completedText: {
+    color: "#4CAF50",
+    fontSize: 12,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+  completedIndicatorDefault: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 12,
+  },
+  completedTextDefault: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    marginLeft: 4,
   },
   controlButtons: {
     flexDirection: "row",
@@ -991,10 +1326,10 @@ const styles = StyleSheet.create({
     borderRadius: 35,
     backgroundColor: "#5CC4C4",
   },
-  // NEW: Auto-play styles
+  // Auto-play styles
   autoPlayNotification: {
     position: "absolute",
-    top: 20,
+    top: 60,
     left: 20,
     right: 20,
     backgroundColor: "rgba(0, 0, 0, 0.8)",
@@ -1056,6 +1391,11 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontSize: 16,
   },
+  // NEW: Completion indicator for stops title
+  completionIndicator: {
+    color: "#5CC4C4",
+    fontSize: 16,
+  },
   stopItem: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -1075,6 +1415,12 @@ const styles = StyleSheet.create({
   },
   playedStopItem: {
     backgroundColor: "#f0f8f0",
+  },
+  // NEW: Completed stop item style
+  completedStopItem: {
+    backgroundColor: "#f0f8f0",
+    borderLeftWidth: 4,
+    borderLeftColor: "#4CAF50",
   },
   stopIconContainer: {
     width: 32,
@@ -1110,12 +1456,38 @@ const styles = StyleSheet.create({
   stopTextContent: {
     flex: 1,
   },
+  // NEW: Stop title row for completion badge
+  stopTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   stopTitle: {
     fontSize: 15,
     fontWeight: "bold",
     color: "#333",
     marginBottom: 2,
     lineHeight: 18,
+    flex: 1,
+  },
+  // NEW: Completed stop title style
+  completedStopTitle: {
+    color: "#4CAF50",
+  },
+  // NEW: Completed badge
+  completedBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#4CAF50",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  completedBadgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
   },
   stopType: {
     fontSize: 11,
@@ -1143,5 +1515,57 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  // NEW: Summary card styles
+  summaryCard: {
+    backgroundColor: "#E8F5E8",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    marginBottom: 20,
+    marginHorizontal: 5,
+  },
+  summaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#4CAF50",
+    marginLeft: 8,
+  },
+  summaryText: {
+    fontSize: 14,
+    color: "#2E7D32",
+    lineHeight: 20,
+  },
+  congratsText: {
+    fontSize: 14,
+    color: "#1B5E20",
+    fontWeight: "600",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  // TEMPORARY: Debug styles - remove after testing
+  debugContainer: {
+    padding: 10,
+    backgroundColor: 'yellow',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  debugButton: {
+    padding: 8,
+    backgroundColor: 'red',
+    borderRadius: 5,
+    flex: 1,
+    marginHorizontal: 2,
+  },
+  debugButtonText: {
+    color: 'white',
+    fontSize: 10,
+    textAlign: 'center',
+    fontWeight: 'bold',
   },
 });
