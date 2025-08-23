@@ -9,10 +9,9 @@ buildscript {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
     classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
-    // Add the version number for Expo SDK 53
-    classpath('expo.modules:expo-modules-gradle-plugin:3.6.0')
   }
 }
+
 def reactNativeAndroidDir = new File(
   providers.exec {
     workingDir(rootDir)

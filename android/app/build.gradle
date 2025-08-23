@@ -95,17 +95,23 @@ android {
         versionCode 1
         versionName "1.0.0"
         
-        // Fix for react-native-iap - use Google Play Store only
+        // Fix for react-native-iap store variant ambiguity
         missingDimensionStrategy 'store', 'play'
     }
     
-    // Completely exclude Amazon variants to avoid conflicts
-    variantFilter { variant ->
-        def names = variant.flavors*.name
-        if (names.contains("amazon")) {
-            setIgnore(true)
+    // Add product flavors for react-native-iap
+    flavorDimensions "store"
+    productFlavors {
+        play {
+            dimension "store"
+            applicationIdSuffix ""
+        }
+        amazon {
+            dimension "store"
+            applicationIdSuffix ""
         }
     }
+    
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
