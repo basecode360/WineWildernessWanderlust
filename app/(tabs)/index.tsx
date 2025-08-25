@@ -58,22 +58,22 @@ export default function ToursScreen() {
   useEffect(() => {
     const loadAllTourImages = async () => {
       if (tours.length === 0) return;
-      
+
       console.log(`🖼️ Loading images for ${tours.length} tours`);
       const uris: Record<string, string> = {};
-      
+
       for (const tour of tours) {
         if (!tour.id) continue;
-        
+
         try {
           // Check if tour is offline first
           const isOffline = isTourOffline(tour.id);
-          
+
           if (isOffline) {
             // For offline tours, get the offline image path
             console.log(`📱 Getting offline image for tour: ${tour.id}`);
             const offlineImagePath = await getOfflineImagePath(tour.id, 'main');
-            
+
             if (offlineImagePath) {
               uris[tour.id] = offlineImagePath;
               console.log(`✅ Offline image loaded for tour ${tour.id}: ${offlineImagePath}`);
@@ -103,7 +103,7 @@ export default function ToursScreen() {
           console.warn(`❌ Failed to load image for tour ${tour.id}:`, error);
         }
       }
-      
+
       setImageUris(uris);
       console.log(`📸 Loaded ${Object.keys(uris).length}/${tours.length} tour images`);
     };
@@ -326,8 +326,8 @@ export default function ToursScreen() {
     return "$0";
   };
 
-  const renderStopsCount = (stops: any[] | undefined) => {
-    const count = Array.isArray(stops) ? stops.length : 0;
+  const renderStopsCount = (tour: Tour) => {
+    const count = tour.stopsCount || (Array.isArray(tour.stops) ? tour.stops.length : 0);
     return `${count} stops`;
   };
 
@@ -341,14 +341,14 @@ export default function ToursScreen() {
         </View>
       );
     } else if (dataSource === "mixed") {
-      setTimeout(()=>{
-return (
-        <View style={styles.dataSourceIndicator}>
-          <Ionicons name="cloud-done" size={16} color="#4CAF50" />
-          <Text style={styles.dataSourceText}>Online </Text>
-        </View>
-      );
-      },2000)
+      setTimeout(() => {
+        return (
+          <View style={styles.dataSourceIndicator}>
+            <Ionicons name="cloud-done" size={16} color="#4CAF50" />
+            <Text style={styles.dataSourceText}>Online </Text>
+          </View>
+        );
+      }, 2000)
     }
     return null;
   };
@@ -570,7 +570,7 @@ return (
                     <View style={styles.statItem}>
                       <Ionicons name="headset-outline" size={16} color="#666" />
                       <Text style={styles.statText}>
-                        {renderStopsCount(tour.stops)}
+                        {renderStopsCount(tour)} 
                       </Text>
                     </View>
                   </View>

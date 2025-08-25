@@ -273,7 +273,7 @@ const fetchToursFromSupabase = async (): Promise<Tour[]> => {
   
   const { data: tours, error } = await supabase
     .from("tours")
-    .select("*")
+    .select("*, stops_count") // Add stops_count to the select
     .order("created_at", { ascending: false });
     
   if (error) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${error.message}`);
@@ -292,6 +292,7 @@ const fetchToursFromSupabase = async (): Promise<Tour[]> => {
       isPurchased: false,
       isDownloaded: false,
       stops: [],
+      stopsCount: tour.stops_count || 0, // Add this line
     };
   }));
 };

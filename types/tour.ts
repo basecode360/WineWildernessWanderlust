@@ -30,10 +30,10 @@ export interface Tour {
   duration: string;
   distance: string;
   image: string;
-  image_path?: string; // new
   isPurchased: boolean;
   isDownloaded: boolean;
   stops: TourStop[];
+  stopsCount?: number; // Add this line
 }
 
 export interface LocationData {

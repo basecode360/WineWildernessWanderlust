@@ -1,4 +1,4 @@
-// app/tour/player/[id].tsx - Enhanced with complete progress tracking integration
+// app/tour/player/[id].tsx - Complete Enhanced with Location-Based Auto-Play and Toast System
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
@@ -50,15 +50,12 @@ const ensureValidTriggerCoordinates = (triggerLat?: number | null, triggerLng?: 
 export default function TourPlayerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   
-  // UPDATED: Enhanced progress hook usage
+  // Enhanced progress hook usage
   const {
     markStopCompleted,
     isStopCompleted,
     getCompletedStopsForTour,
     isLoading: progressLoading,
-    forceResetAllProgress, // Add this
-    debugShowStoredData, // Add this
-    testDatabaseConnection, // Add this
   } = useProgress();
   
   const { getOfflineTour, getOfflineAudioPath, getOfflineImagePath, isOnline } = useOffline();
@@ -79,13 +76,142 @@ export default function TourPlayerScreen() {
   const [showMap, setShowMap] = useState(false);
   const [stopImages, setStopImages] = useState<Record<string, string>>({});
   
-  // NEW: Auto-play settings
+  // Auto-play settings
   const [isAutoPlayEnabled, setIsAutoPlayEnabled] = useState(true);
   const [autoPlayCountdown, setAutoPlayCountdown] = useState(0);
+  
+  // NEW: Location-based auto-play settings
+  const [locationAutoPlayEnabled, setLocationAutoPlayEnabled] = useState(true);
+  const [lastTriggeredStopId, setLastTriggeredStopId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showLocationWarning, setShowLocationWarning] = useState(false);
 
   const audioRef = useRef<Audio.Sound | null>(null);
   const locationService = useRef(LocationService.getInstance());
   const autoPlayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Proximity trigger guards (session-scoped)
+  const isTriggeringRef = useRef(false);
+  const playedSetRef = useRef<Set<string>>(new Set());
+
+  // Toast notification component
+  const Toast = ({ message, isVisible, onHide }: { 
+    message: string; 
+    isVisible: boolean; 
+    onHide: () => void;
+  }) => {
+    useEffect(() => {
+      if (isVisible) {
+        const timer = setTimeout(() => {
+          onHide();
+        }, 4000); // Show for 4 seconds
+        return () => clearTimeout(timer);
+      }
+    }, [isVisible, onHide]);
+
+    if (!isVisible) return null;
+
+    return (
+      <View style={styles.toastContainer}>
+        <View style={styles.toast}>
+          <Ionicons name="location-outline" size={20} color="#FF9800" />
+          <Text style={styles.toastText}>{message}</Text>
+          <TouchableOpacity onPress={onHide} style={styles.toastCloseButton}>
+            <Ionicons name="close" size={16} color="#666" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // Location warning banner component
+  const LocationWarningBanner = () => {
+    if (!showLocationWarning || !tour || currentStopIndex >= tour.stops.length - 1) return null;
+    
+    const nextStop = tour.stops[currentStopIndex + 1];
+    const distance = getDistanceToStop(currentLocation, nextStop);
+    
+    return (
+      <View style={styles.locationWarningBanner}>
+        <View style={styles.warningContent}>
+          <Ionicons name="location-outline" size={20} color="#FFF" />
+          <View style={styles.warningTextContainer}>
+            <Text style={styles.warningTitle}>Next Stop: {nextStop.title}</Text>
+            <Text style={styles.warningText}>
+              You're {distance ? `${Math.round(distance)}m away` : 'not close enough'}. Move closer for auto-play.
+            </Text>
+          </View>
+        </View>
+        <TouchableOpacity 
+          style={styles.forcePlayButton}
+          onPress={forcePlayNextStop}
+        >
+          <Text style={styles.forcePlayButtonText}>Play Anyway</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Helper functions
+  const isUserNearStop = (userLocation: LocationData, stop: TourStop, threshold: number = PROXIMITY_THRESHOLD): boolean => {
+    if (!userLocation || !stop) return false;
+    
+    const triggerCoords = stop.triggerCoordinates || stop.coordinates;
+    if (!triggerCoords || typeof triggerCoords.lat !== 'number' || typeof triggerCoords.lng !== 'number') {
+      return false;
+    }
+
+    const distance = calculateDistance(
+      userLocation.latitude,
+      userLocation.longitude,
+      triggerCoords.lat,
+      triggerCoords.lng
+    );
+
+    return distance <= threshold;
+  };
+
+  const getDistanceToStop = (userLocation: LocationData | null, stop: TourStop): number | null => {
+    if (!userLocation || !stop) return null;
+    
+    const triggerCoords = stop.triggerCoordinates || stop.coordinates;
+    if (!triggerCoords || typeof triggerCoords.lat !== 'number' || typeof triggerCoords.lng !== 'number') {
+      return null;
+    }
+
+    return calculateDistance(
+      userLocation.latitude,
+      userLocation.longitude,
+      triggerCoords.lat,
+      triggerCoords.lng
+    );
+  };
+
+  const showToast = (message: string) => {
+    console.log(`🍞 Toast: ${message}`);
+    setToastMessage(message);
+  };
+
+  const hideToast = () => {
+    setToastMessage(null);
+  };
+
+  // Manual override function to skip location requirement
+  const forcePlayNextStop = () => {
+    if (!tour || currentStopIndex >= tour.stops.length - 1) return;
+    
+    console.log('🚀 Force playing next stop (overriding location requirement)');
+    cancelAutoPlay();
+    hideToast();
+    setShowLocationWarning(false);
+    
+    const nextIndex = currentStopIndex + 1;
+    setCurrentStopIndex(nextIndex);
+    
+    setTimeout(() => {
+      triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
+    }, 300);
+  };
 
   // Load tour data
   useEffect(() => {
@@ -218,9 +344,14 @@ export default function TourPlayerScreen() {
   useEffect(() => {
     initializeLocation();
     return () => {
+      console.log('🧹 Player cleanup: stopping tracking + unloading audio');
       locationService.current.stopTracking();
       audioRef.current?.unloadAsync();
-      // Clean up auto-play timer
+
+      // reset guards
+      isTriggeringRef.current = false;
+      playedSetRef.current.clear();
+
       if (autoPlayTimerRef.current) {
         clearTimeout(autoPlayTimerRef.current);
       }
@@ -235,7 +366,7 @@ export default function TourPlayerScreen() {
     stopCurrentAudio();
   }, [currentStopIndex]);
 
-  // FIXED: Auto-play countdown effect - always move to next stop
+  // Enhanced auto-play countdown effect with location checking
   useEffect(() => {
     if (autoPlayCountdown > 0) {
       const timer = setTimeout(() => {
@@ -243,7 +374,6 @@ export default function TourPlayerScreen() {
       }, 1000);
       return () => clearTimeout(timer);
     } else if (autoPlayCountdown === 0 && autoPlayTimerRef.current && tour) {
-      // When countdown reaches 0, always move to next stop
       console.log(`🚀 Countdown reached 0, advancing from stop ${currentStopIndex} to ${currentStopIndex + 1}`);
       
       if (currentStopIndex < tour.stops.length - 1) {
@@ -255,7 +385,7 @@ export default function TourPlayerScreen() {
         
         // Small delay to ensure state updates, then play next stop
         setTimeout(() => {
-          triggerAudioForStop(tour.stops[nextIndex], nextIndex);
+          triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
         }, 300);
       }
     }
@@ -284,32 +414,90 @@ export default function TourPlayerScreen() {
       const success = await locationService.current.startTracking(
         (location) => {
           setCurrentLocation(location);
-          checkProximityToStops(location);
+          console.log(`🧭 Location updated: ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`);
+          
+          // Only check proximity if location auto-play is enabled
+          if (locationAutoPlayEnabled) {
+            checkProximityToStops(location);
+          }
         },
         {
+          // Use high accuracy for better proximity detection
           accuracy: Location.Accuracy.High,
-          timeInterval: 1000,
-          distanceInterval: 10,
+          timeInterval: 2000,   // Check every 2 seconds
+          distanceInterval: 5,  // Or when moved 5 meters
         }
       );
 
       if (!success) {
         console.warn("⚠️ Failed to start location tracking");
+        Alert.alert(
+          "Location Tracking Failed",
+          "Unable to start location tracking. Location-based audio triggers won't work.",
+          [{ text: "OK" }]
+        );
+      } else {
+        console.log("✅ Location tracking started successfully");
       }
     } catch (error) {
       console.error("❌ Error starting location tracking:", error);
+      Alert.alert(
+        "Location Error", 
+        "There was an error starting location tracking. Please check your location permissions.",
+        [{ text: "OK" }]
+      );
     }
   };
-
+  
   const checkProximityToStops = (location: LocationData) => {
-    if (!tour) return;
+    if (!tour) {
+      console.log('⏭️ No tour loaded yet; skipping proximity check');
+      return;
+    }
 
-    tour.stops.forEach((stop, index) => {
-      if (stop.isPlayed) return;
+    // Skip if location-based auto-play is disabled
+    if (!locationAutoPlayEnabled) {
+      console.log('📍 Location auto-play is disabled');
+      return;
+    }
 
+    if (isTriggeringRef.current) {
+      console.log('⏳ Already triggering a stop; skipping this tick');
+      return;
+    }
+
+    // Clear location warning when user moves (will be recalculated)
+    if (showLocationWarning && currentStopIndex < tour.stops.length - 1) {
+      const nextStop = tour.stops[currentStopIndex + 1];
+      if (isUserNearStop(location, nextStop)) {
+        console.log('✅ User moved closer to next stop, clearing warning');
+        setShowLocationWarning(false);
+        hideToast();
+        
+        // If auto-play is enabled and we were waiting, start countdown now
+        if (isAutoPlayEnabled && !audioRef.current) {
+          console.log('🎯 User is now close enough, starting delayed auto-play countdown');
+          startAutoPlayCountdown();
+        }
+      }
+    }
+
+    let bestStop: TourStop | null = null;
+    let bestIndex = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    // Find the closest stop within proximity threshold
+    for (let i = 0; i < tour.stops.length; i++) {
+      const stop = tour.stops[i];
+
+      // Use trigger coordinates if available, otherwise use regular coordinates
       const triggerCoords = stop.triggerCoordinates || stop.coordinates;
-      if (!triggerCoords || typeof triggerCoords.lat !== 'number' || typeof triggerCoords.lng !== 'number') {
-        return;
+      if (
+        !triggerCoords ||
+        typeof triggerCoords.lat !== 'number' ||
+        typeof triggerCoords.lng !== 'number'
+      ) {
+        continue;
       }
 
       const distance = calculateDistance(
@@ -318,12 +506,63 @@ export default function TourPlayerScreen() {
         triggerCoords.lat,
         triggerCoords.lng
       );
-      const isNearby = distance <= PROXIMITY_THRESHOLD;
 
-      if (isNearby) {
-        triggerAudioForStop(stop, index);
+      // Check if within proximity and is closer than previous candidates
+      if (distance <= PROXIMITY_THRESHOLD && distance < bestDistance) {
+        bestDistance = distance;
+        bestStop = stop;
+        bestIndex = i;
       }
-    });
+    }
+
+    if (bestStop && bestIndex >= 0) {
+      // Prevent re-triggering the same stop repeatedly
+      if (lastTriggeredStopId === bestStop.id) {
+        console.log(`🔄 Stop "${bestStop.title}" already triggered recently, skipping`);
+        return;
+      }
+
+      console.log(`✅ Location triggered: "${bestStop.title}" [${bestStop.id}] @ ${Math.round(bestDistance)}m`);
+      
+      // Show location trigger toast
+      showToast(`📍 Entering "${bestStop.title}" area - starting audio automatically`);
+      
+      // Set triggering flag and trigger audio
+      isTriggeringRef.current = true;
+      setLastTriggeredStopId(bestStop.id);
+      
+      triggerAudioForStop(bestStop, bestIndex, true) // true = triggered by location
+        .catch((e) => {
+          console.warn('⚠️ Location-triggered audio failed:', e);
+          showToast(`❌ Could not play audio for "${bestStop.title}"`);
+          setLastTriggeredStopId(null);
+        })
+        .finally(() => {
+          isTriggeringRef.current = false;
+        });
+    } else {
+      // Reset last triggered stop if we're far from all stops
+      if (lastTriggeredStopId) {
+        const lastTriggeredStop = tour.stops.find(s => s.id === lastTriggeredStopId);
+        if (lastTriggeredStop) {
+          const triggerCoords = lastTriggeredStop.triggerCoordinates || lastTriggeredStop.coordinates;
+          if (triggerCoords) {
+            const distanceFromLast = calculateDistance(
+              location.latitude,
+              location.longitude,
+              triggerCoords.lat,
+              triggerCoords.lng
+            );
+            
+            // Reset if we're far enough from the last triggered stop
+            if (distanceFromLast > PROXIMITY_THRESHOLD * 2) {
+              console.log(`🔄 Far enough from last triggered stop, resetting trigger lock`);
+              setLastTriggeredStopId(null);
+            }
+          }
+        }
+      }
+    }
   };
 
   // Enhanced stop current audio function
@@ -332,7 +571,6 @@ export default function TourPlayerScreen() {
     
     if (audioRef.current) {
       try {
-        // Get current status before unloading
         const status = await audioRef.current.getStatusAsync();
         console.log("Audio status before stop:", status);
         
@@ -360,7 +598,49 @@ export default function TourPlayerScreen() {
     });
   };
 
-  // FIXED: Enhanced audio playback listener with proper progression logic
+  // Enhanced auto-play countdown with location checking
+  const startAutoPlayCountdown = () => {
+    if (!tour || currentStopIndex >= tour.stops.length - 1) {
+      console.log('🚫 No next stop available for auto-play');
+      return;
+    }
+
+    const nextStop = tour.stops[currentStopIndex + 1];
+    
+    // Check if location-based auto-play is enabled
+    if (locationAutoPlayEnabled && currentLocation) {
+      const isNearNextStop = isUserNearStop(currentLocation, nextStop);
+      const distance = getDistanceToStop(currentLocation, nextStop);
+      
+      if (!isNearNextStop) {
+        console.log(`🚫 User not near next stop "${nextStop.title}" (${distance ? Math.round(distance) : 'unknown'}m away)`);
+        
+        // Show toast message about location requirement
+        const distanceText = distance ? `${Math.round(distance)}m away` : 'far from location';
+        showToast(`You're ${distanceText} from "${nextStop.title}". Move closer to auto-play the next stop.`);
+        
+        // Set warning flag
+        setShowLocationWarning(true);
+        
+        // Don't start the countdown - wait for user to get closer
+        return;
+      } else {
+        console.log(`✅ User is near next stop "${nextStop.title}", proceeding with auto-play countdown`);
+        // Clear any existing warning
+        setShowLocationWarning(false);
+      }
+    }
+
+    console.log(`⏰ Starting 5-second countdown for auto-play (current index: ${currentStopIndex})`);
+    setAutoPlayCountdown(5); // 5 second countdown
+    
+    // Set timer reference for cleanup purposes
+    autoPlayTimerRef.current = setTimeout(() => {
+      console.log(`⏰ Auto-play timer completed`);
+    }, 5000);
+  };
+
+  // Enhanced audio playback listener with location-aware auto-play
   const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
     sound.setOnPlaybackStatusUpdate(async (status) => {
       if (!status.isLoaded) return;
@@ -377,7 +657,7 @@ export default function TourPlayerScreen() {
       if (status.didJustFinish && tour) {
         console.log(`🎵 Audio finished for stop: ${stopId} (index: ${currentStopIndex})`);
         
-        // Mark stop as completed (only if not already completed to avoid duplicates)
+        // Mark stop as completed
         try {
           const isAlreadyCompleted = checkStopCompletion(stopId);
           if (!isAlreadyCompleted) {
@@ -389,11 +669,6 @@ export default function TourPlayerScreen() {
           }
         } catch (error) {
           console.error('❌ Error marking stop as completed:', error);
-          console.error('❌ Error details:', {
-            stopId,
-            tourId: tour.id,
-            error: error instanceof Error ? error.message : error
-          });
         }
         
         // Reset audio state properly
@@ -414,13 +689,11 @@ export default function TourPlayerScreen() {
           audioRef.current = null;
         }
         
-        // FIXED: Always progress to next stop if auto-play enabled and there's a next stop
-        // Don't check if next stop is completed - just move forward
         const hasNextStop = currentStopIndex < tour.stops.length - 1;
         
         if (isAutoPlayEnabled && hasNextStop) {
-          console.log(`🔄 Auto-play enabled, moving to next stop (${currentStopIndex + 1}/${tour.stops.length})`);
-          startAutoPlayCountdown();
+          console.log(`🔄 Auto-play enabled, checking location for next stop (${currentStopIndex + 1}/${tour.stops.length})`);
+          startAutoPlayCountdown(); // This will now check location
         } else if (!hasNextStop) {
           console.log("🎉 Tour completed - reached final stop!");
           showTourCompletedMessage();
@@ -431,22 +704,7 @@ export default function TourPlayerScreen() {
     });
   };
 
-  // FIXED: Start auto-play countdown - simplified
-  const startAutoPlayCountdown = () => {
-    console.log(`⏰ Starting 5-second countdown for auto-play (current index: ${currentStopIndex})`);
-    setAutoPlayCountdown(5); // 5 second countdown
-    
-    // Set timer reference for cleanup purposes
-    autoPlayTimerRef.current = setTimeout(() => {
-      // Timer cleanup will be handled by useEffect
-      console.log(`⏰ Auto-play timer completed`);
-    }, 5000);
-  };
-
-  // FIXED: Simplified playNextStop - remove since we handle it in useEffect
-  // This function is now handled directly in the useEffect for better reliability
-
-  // NEW: Cancel auto-play countdown
+  // Cancel auto-play countdown
   const cancelAutoPlay = () => {
     if (autoPlayTimerRef.current) {
       clearTimeout(autoPlayTimerRef.current);
@@ -456,7 +714,7 @@ export default function TourPlayerScreen() {
     console.log("⏹️ Auto-play cancelled");
   };
 
-  // UPDATED: Show tour completed message with progress stats
+  // Show tour completed message with progress stats
   const showTourCompletedMessage = () => {
     if (!tour) return;
     
@@ -485,11 +743,15 @@ export default function TourPlayerScreen() {
     );
   };
 
-  // Improved triggerAudioForStop function with better state management
-  const triggerAudioForStop = async (stop: TourStop, index: number) => {
-    if (!tour) return;
+  // Enhanced triggerAudioForStop with location parameter
+  const triggerAudioForStop = async (stop: TourStop, index: number, triggeredByLocation: boolean = false) => {
+    if (!tour) {
+      console.log('⛔ No tour while triggering audio; abort');
+      return;
+    }
     
-    console.log(`🎵 Triggering audio for stop: ${stop.title} (${stop.id})`);
+    const triggerSource = triggeredByLocation ? "location" : "manual";
+    console.log(`🎵 triggerAudioForStop -> "${stop.title}" [${stop.id}] (index=${index}, source=${triggerSource})`);
     
     try {
       // Stop any currently playing audio first
@@ -520,11 +782,16 @@ export default function TourPlayerScreen() {
       }
 
       if (!audioUri) {
-        Alert.alert(
-          "Audio Not Available",
-          `Audio is not available for: ${stop.title}${isOfflineMode ? ' (not downloaded for offline use)' : ''}`
-        );
-        return;
+        const message = `Audio is not available for: ${stop.title}${isOfflineMode ? ' (not downloaded for offline use)' : ''}`;
+        
+        if (triggeredByLocation) {
+          console.warn(`⚠️ Location-triggered audio not available: ${message}`);
+          // Don't show alert for location-triggered failures, just log
+          return;
+        } else {
+          Alert.alert("Audio Not Available", message);
+          return;
+        }
       }
 
       console.log(`🎵 Creating audio with URI: ${audioUri}`);
@@ -554,10 +821,11 @@ export default function TourPlayerScreen() {
         return { ...prev, stops: updatedStops };
       });
       
-      console.log(`✅ Audio started for stop: ${stop.title}`);
+      console.log(`✅ Audio started for stop: ${stop.title} (triggered by ${triggerSource})`);
       
     } catch (error) {
       console.error("❌ Audio playback error:", error);
+      
       // Reset state on error
       setAudioState({
         isPlaying: false,
@@ -565,7 +833,10 @@ export default function TourPlayerScreen() {
         position: 0,
         duration: 0,
       });
-      Alert.alert("Audio Not Available", `Could not play audio for: ${stop.title}`);
+      
+      if (!triggeredByLocation) {
+        Alert.alert("Audio Not Available", `Could not play audio for: ${stop.title}`);
+      }
     }
   };
 
@@ -575,7 +846,7 @@ export default function TourPlayerScreen() {
       // If no audio is loaded, start playing the current stop
       if (!audioRef.current && tour?.stops[currentStopIndex]) {
         console.log("🎵 No audio loaded, starting playback for current stop");
-        await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex);
+        await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
         return;
       }
 
@@ -624,7 +895,6 @@ export default function TourPlayerScreen() {
     }
 
     const { lat, lng } = coords;
-    const stopName = encodeURIComponent(stop.title);
 
     // Try Google Maps first (most common)
     const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
@@ -668,15 +938,18 @@ export default function TourPlayerScreen() {
     // Cancel auto-play when user manually selects a stop
     cancelAutoPlay();
     
+    // Reset location trigger lock when manually selecting
+    setLastTriggeredStopId(null);
+    
     // If this is the currently selected stop and audio is playing, just toggle
     if (index === currentStopIndex && audioRef.current) {
       await toggleAudio();
     } else {
       // Different stop selected, change to it and start playing
       setCurrentStopIndex(index);
-      // Small delay to ensure state updates, then trigger audio
+      // Small delay to ensure state updates, then trigger audio (manual trigger)
       setTimeout(() => {
-        triggerAudioForStop(stop, index);
+        triggerAudioForStop(stop, index, false);
       }, 100);
     }
   };
@@ -729,7 +1002,7 @@ export default function TourPlayerScreen() {
     return icon;
   };
 
-  // ADDED: Get completion stats for current tour
+  // Get completion stats for current tour
   const getCompletionStats = () => {
     if (!tour) return { completed: 0, total: 0, percentage: 0 };
     
@@ -741,7 +1014,7 @@ export default function TourPlayerScreen() {
     return { completed, total, percentage };
   };
 
-  // ADDED: Check if specific stop is completed
+  // Check if specific stop is completed
   const checkStopCompletion = (stopId: string) => {
     return tour ? isStopCompleted(tour.id, stopId) : false;
   };
@@ -774,34 +1047,20 @@ export default function TourPlayerScreen() {
       </View>
     );
 
-  // ADDED: Get completion stats
+  // Get completion stats
   const stats = getCompletionStats();
 
   return (
     <View style={styles.container}>
-      {/* TEMPORARY: Debug buttons - remove after testing 
-      <View style={styles.debugContainer}>
-        <TouchableOpacity 
-          style={styles.debugButton} 
-          onPress={() => forceResetAllProgress()}
-        >
-          <Text style={styles.debugButtonText}>🧹 CLEAR ALL PROGRESS</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.debugButton, { backgroundColor: 'blue' }]} 
-          onPress={() => debugShowStoredData()}
-        >
-          <Text style={styles.debugButtonText}>🔍 DEBUG STORAGE</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.debugButton, { backgroundColor: 'green' }]} 
-          onPress={() => testDatabaseConnection()}
-        >
-          <Text style={styles.debugButtonText}>🧪 TEST DATABASE</Text>
-        </TouchableOpacity>
-      </View>*/}
+      {/* Toast notification overlay */}
+      <Toast 
+        message={toastMessage || ''} 
+        isVisible={!!toastMessage} 
+        onHide={hideToast} 
+      />
+
+      {/* Location warning banner */}
+      <LocationWarningBanner />
 
       {showMap && (
         <View style={styles.mapContainer}>
@@ -845,7 +1104,7 @@ export default function TourPlayerScreen() {
         </View>
       )}
 
-      {/* UPDATED: Enhanced Audio Controls with Progress Display */}
+      {/* Enhanced Audio Controls with Location Auto-Play */}
       <View style={styles.audioControls}>
         {currentStopImage ? (
           <ImageBackground
@@ -854,7 +1113,7 @@ export default function TourPlayerScreen() {
             imageStyle={styles.backgroundImage}
           >
             <View style={styles.audioControlsOverlay}>
-              {/* ADDED: Progress stats at top */}
+              {/* Progress stats at top */}
               <View style={styles.progressHeader}>
                 <Text style={styles.progressText}>
                   {stats.completed} of {stats.total} completed ({stats.percentage}%)
@@ -864,12 +1123,19 @@ export default function TourPlayerScreen() {
                 </View>
               </View>
 
-              {/* Auto-play countdown display */}
+              {/* Enhanced auto-play countdown display with location info */}
               {autoPlayCountdown > 0 && (
                 <View style={styles.autoPlayNotification}>
-                  <Text style={styles.autoPlayText}>
-                    Next stop in {autoPlayCountdown}s
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.autoPlayText}>
+                      Next stop in {autoPlayCountdown}s
+                    </Text>
+                    {locationAutoPlayEnabled && tour && currentStopIndex < tour.stops.length - 1 && (
+                      <Text style={[styles.autoPlayText, { fontSize: 11, opacity: 0.8 }]}>
+                        📍 Location verified ✓
+                      </Text>
+                    )}
+                  </View>
                   <TouchableOpacity onPress={cancelAutoPlay} style={styles.cancelAutoPlayButton}>
                     <Text style={styles.cancelAutoPlayText}>Cancel</Text>
                   </TouchableOpacity>
@@ -883,13 +1149,27 @@ export default function TourPlayerScreen() {
                 <Text style={styles.currentStopType}>
                   {currentStop?.type.replace("_", " ").toUpperCase()}
                 </Text>
-                {/* ADDED: Completion indicator for current stop */}
+                {/* Completion indicator for current stop */}
                 {currentStop && checkStopCompletion(currentStop.id) && (
                   <View style={styles.completedIndicator}>
                     <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
                     <Text style={styles.completedText}>Completed</Text>
                   </View>
                 )}
+                
+                {/* Location status for next stop
+                {locationAutoPlayEnabled && currentLocation && tour && currentStopIndex < tour.stops.length - 1 && (
+                  <View style={styles.locationStatus}>
+                    <Ionicons 
+                      name={isUserNearStop(currentLocation, tour.stops[currentStopIndex + 1]) ? "location" : "location-outline"} 
+                      size={12} 
+                      color={isUserNearStop(currentLocation, tour.stops[currentStopIndex + 1]) ? "#4CAF50" : "#FF9800"} 
+                    />
+                    <Text style={styles.locationStatusText}>
+                      Next: {isUserNearStop(currentLocation, tour.stops[currentStopIndex + 1]) ? "In range" : "Move closer"}
+                    </Text>
+                  </View>
+                )}*/}
               </View>
               
               <View style={styles.controlButtons}>
@@ -915,25 +1195,43 @@ export default function TourPlayerScreen() {
                 </TouchableOpacity>
               </View>
               
-              {/* Auto-play toggle */}
-              <TouchableOpacity 
-                style={styles.autoPlayToggle}
-                onPress={() => setIsAutoPlayEnabled(!isAutoPlayEnabled)}
-              >
-                <Ionicons 
-                  name={isAutoPlayEnabled ? "shuffle" : "shuffle-outline"} 
-                  size={16} 
-                  color="#fff" 
-                />
-                <Text style={styles.autoPlayToggleText}>
-                  Auto-play {isAutoPlayEnabled ? "ON" : "OFF"}
-                </Text>
-              </TouchableOpacity>
+              {/* Control toggles container */}
+              <View style={styles.togglesContainer}>
+                {/* Regular Auto-play toggle */}
+                <TouchableOpacity 
+                  style={styles.autoPlayToggle}
+                  onPress={() => setIsAutoPlayEnabled(!isAutoPlayEnabled)}
+                >
+                  <Ionicons 
+                    name={isAutoPlayEnabled ? "shuffle" : "shuffle-outline"} 
+                    size={16} 
+                    color="#fff" 
+                  />
+                  <Text style={styles.autoPlayToggleText}>
+                    Auto-play {isAutoPlayEnabled ? "ON" : "OFF"}
+                  </Text>
+                </TouchableOpacity>
+                
+                {/* Location Auto-play toggle */}
+                <TouchableOpacity 
+                  style={styles.locationAutoPlayToggle}
+                  onPress={() => setLocationAutoPlayEnabled(!locationAutoPlayEnabled)}
+                >
+                  <Ionicons 
+                    name={locationAutoPlayEnabled ? "location" : "location-outline"} 
+                    size={16} 
+                    color="#fff" 
+                  />
+                  <Text style={styles.locationAutoPlayToggleText}>
+                    Location Auto-Play {locationAutoPlayEnabled ? "ON" : "OFF"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ImageBackground>
         ) : (
           <View style={styles.audioControlsDefault}>
-            {/* ADDED: Progress stats for default view */}
+            {/* Progress stats for default view */}
             <View style={styles.progressHeader}>
               <Text style={styles.progressTextDefault}>
                 {stats.completed} of {stats.total} completed ({stats.percentage}%)
@@ -946,9 +1244,16 @@ export default function TourPlayerScreen() {
             {/* Auto-play countdown for default view */}
             {autoPlayCountdown > 0 && (
               <View style={styles.autoPlayNotification}>
-                <Text style={styles.autoPlayText}>
-                  Next stop in {autoPlayCountdown}s
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.autoPlayText}>
+                    Next stop in {autoPlayCountdown}s
+                  </Text>
+                  {locationAutoPlayEnabled && tour && currentStopIndex < tour.stops.length - 1 && (
+                    <Text style={[styles.autoPlayText, { fontSize: 11, opacity: 0.8 }]}>
+                      📍 Location verified ✓
+                    </Text>
+                  )}
+                </View>
                 <TouchableOpacity onPress={cancelAutoPlay} style={styles.cancelAutoPlayButton}>
                   <Text style={styles.cancelAutoPlayText}>Cancel</Text>
                 </TouchableOpacity>
@@ -962,11 +1267,25 @@ export default function TourPlayerScreen() {
               <Text style={styles.currentStopType}>
                 {currentStop?.type.replace("_", " ").toUpperCase()}
               </Text>
-              {/* ADDED: Completion indicator for current stop in default view */}
+              {/* Completion indicator for current stop in default view */}
               {currentStop && checkStopCompletion(currentStop.id) && (
                 <View style={styles.completedIndicatorDefault}>
                   <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
                   <Text style={styles.completedTextDefault}>Completed</Text>
+                </View>
+              )}
+              
+              {/* Location status for next stop in default view */}
+              {locationAutoPlayEnabled && currentLocation && tour && currentStopIndex < tour.stops.length - 1 && (
+                <View style={styles.locationStatusDefault}>
+                  <Ionicons 
+                    name={isUserNearStop(currentLocation, tour.stops[currentStopIndex + 1]) ? "location" : "location-outline"} 
+                    size={12} 
+                    color={isUserNearStop(currentLocation, tour.stops[currentStopIndex + 1]) ? "#4CAF50" : "#FF9800"} 
+                  />
+                  <Text style={styles.locationStatusTextDefault}>
+                    Next: {isUserNearStop(currentLocation, tour.stops[currentStopIndex + 1]) ? "In range" : "Move closer"}
+                  </Text>
                 </View>
               )}
             </View>
@@ -994,25 +1313,43 @@ export default function TourPlayerScreen() {
               </TouchableOpacity>
             </View>
             
-            {/* Auto-play toggle for default view */}
-            <TouchableOpacity 
-              style={styles.autoPlayToggle}
-              onPress={() => setIsAutoPlayEnabled(!isAutoPlayEnabled)}
-            >
-              <Ionicons 
-                name={isAutoPlayEnabled ? "shuffle" : "shuffle-outline"} 
-                size={16} 
-                color="#fff" 
-              />
-              <Text style={styles.autoPlayToggleText}>
-                Auto-play {isAutoPlayEnabled ? "ON" : "OFF"}
-              </Text>
-            </TouchableOpacity>
+            {/* Control toggles container for default view */}
+            <View style={styles.togglesContainer}>
+              {/* Regular Auto-play toggle for default view */}
+              <TouchableOpacity 
+                style={styles.autoPlayToggle}
+                onPress={() => setIsAutoPlayEnabled(!isAutoPlayEnabled)}
+              >
+                <Ionicons 
+                  name={isAutoPlayEnabled ? "shuffle" : "shuffle-outline"} 
+                  size={16} 
+                  color="#fff" 
+                />
+                <Text style={styles.autoPlayToggleText}>
+                  Auto-play {isAutoPlayEnabled ? "ON" : "OFF"}
+                </Text>
+              </TouchableOpacity>
+              
+              {/* Location Auto-play toggle for default view */}
+              <TouchableOpacity 
+                style={styles.locationAutoPlayToggle}
+                onPress={() => setLocationAutoPlayEnabled(!locationAutoPlayEnabled)}
+              >
+                <Ionicons 
+                  name={locationAutoPlayEnabled ? "location" : "location-outline"} 
+                  size={16} 
+                  color="#fff" 
+                />
+                <Text style={styles.locationAutoPlayToggleText}>
+                  Location Auto-Play {locationAutoPlayEnabled ? "ON" : "OFF"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
 
-      {/* UPDATED: Enhanced Stops List with Completion Status */}
+      {/* Enhanced Stops List with Location Status */}
       <ScrollView style={styles.stopsList}>
         <Text style={styles.stopsTitle}>
           Tour Stops ({tour.stops.length}){" "}
@@ -1022,10 +1359,15 @@ export default function TourPlayerScreen() {
           {stats.completed > 0 && (
             <Text style={styles.completionIndicator}>• {stats.completed} completed</Text>
           )}
+          {/*locationAutoPlayEnabled && (
+            <Text style={styles.locationIndicator}>• Location Auto-Play</Text>
+          )*/}
         </Text>
         {tour.stops.map((stop, index) => {
           const isCompleted = checkStopCompletion(stop.id);
           const isCurrent = index === currentStopIndex;
+          const isNearby = currentLocation ? isUserNearStop(currentLocation, stop) : false;
+          const distance = currentLocation ? getDistanceToStop(currentLocation, stop) : null;
           
           return (
             <TouchableOpacity
@@ -1035,6 +1377,7 @@ export default function TourPlayerScreen() {
                 isCurrent && styles.currentStopItem,
                 stop.isPlayed && styles.playedStopItem,
                 isCompleted && styles.completedStopItem,
+                isNearby && styles.nearbyStopItem,
               ]}
               onPress={() => handleStopPress(stop, index)}
             >
@@ -1043,6 +1386,11 @@ export default function TourPlayerScreen() {
                   <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
                 ) : stop.isPlayed ? (
                   <Ionicons name="play-circle" size={24} color="#FF9800" />
+                ) : isNearby ? (
+                  <View style={styles.nearbyStopIcon}>
+                    <Text style={styles.stopNumber}>{index + 1}</Text>
+                    <Ionicons name="location" size={12} color="#4CAF50" style={styles.locationBadge} />
+                  </View>
                 ) : (
                   <Text style={styles.stopNumber}>{index + 1}</Text>
                 )}
@@ -1062,23 +1410,25 @@ export default function TourPlayerScreen() {
                         <Text style={styles.completedBadgeText}>✓</Text>
                       </View>
                     )}
+                    {isNearby && !isCompleted && (
+                      <View style={styles.nearbyBadge}>
+                        <Text style={styles.nearbyBadgeText}>📍</Text>
+                      </View>
+                    )}
                   </View>
                   <Text style={styles.stopType}>
                     {stop.type.replace("_", " ")}
                     {isCurrent && " • Now Playing"}
                     {isCompleted && " • Completed"}
+                    {isNearby && !isCurrent && " • Nearby"}
                   </Text>
-                  {currentLocation && stop.coordinates && (
-                    <Text style={styles.stopDistance}>
-                      {Math.round(
-                        calculateDistance(
-                          currentLocation.latitude,
-                          currentLocation.longitude,
-                          stop.coordinates.lat,
-                          stop.coordinates.lng
-                        )
-                      )}
-                      m away
+                  {distance && (
+                    <Text style={[
+                      styles.stopDistance,
+                      isNearby && styles.nearbyStopDistance
+                    ]}>
+                      {Math.round(distance)}m away
+                      {isNearby && " ✓"}
                     </Text>
                   )}
                 </View>
@@ -1093,7 +1443,7 @@ export default function TourPlayerScreen() {
           );
         })}
 
-        {/* ADDED: Completion Summary at bottom */}
+        {/* Completion Summary */}
         {stats.completed > 0 && (
           <View style={styles.summaryCard}>
             <View style={styles.summaryHeader}>
@@ -1103,6 +1453,11 @@ export default function TourPlayerScreen() {
             <Text style={styles.summaryText}>
               Great progress! You've completed {stats.completed} out of {stats.total} stops ({stats.percentage}%).
             </Text>
+            {locationAutoPlayEnabled && (
+              <Text style={styles.locationHelpText}>
+                💡 Keep Location Auto-Play enabled to automatically start audio when you reach each stop.
+              </Text>
+            )}
             {stats.percentage === 100 && (
               <Text style={styles.congratsText}>
                 🎉 Congratulations! You've completed the entire tour!
@@ -1165,6 +1520,95 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  
+  // Toast notification styles
+  toastContainer: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    right: 16,
+    zIndex: 2000,
+    alignItems: 'center',
+  },
+  toast: {
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    maxWidth: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#5CC4C4',
+  },
+  toastText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginHorizontal: 12,
+    flex: 1,
+    lineHeight: 18,
+  },
+  toastCloseButton: {
+    padding: 4,
+  },
+
+  // Location warning banner styles
+  locationWarningBanner: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
+    backgroundColor: '#5CC4C4',
+    borderRadius: 12,
+    padding: 16,
+    zIndex: 1500,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  warningContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  warningTextContainer: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  warningTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  warningText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  forcePlayButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    alignSelf: 'flex-end',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  forcePlayButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
   mapContainer: {
     height: 300,
     position: "relative",
@@ -1181,7 +1625,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   audioControls: {
-    height: "55%",
+    height: "60%",
   },
   audioControlsBackground: {
     flex: 1,
@@ -1203,51 +1647,50 @@ const styles = StyleSheet.create({
     minHeight: 150,
     justifyContent: 'center',
   },
-  // NEW: Progress header styles
+
+  // Progress header styles
   progressHeader: {
-    position: "absolute",
-    top: 10,
-    left: 20,
-    right: 20,
-    zIndex: 1,
+    alignItems: "center",
+    marginBottom: 12,
   },
   progressText: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
-    textAlign: "center",
+    marginBottom: 8,
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
     textShadowOffset: { width: -1, height: 1 },
-    textShadowRadius: 5,
-  },
-  progressBar: {
-    height: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
-    borderRadius: 2,
-    marginTop: 4,
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
-    borderRadius: 2,
+    textShadowRadius: 10,
   },
   progressTextDefault: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
-    textAlign: "center",
+    marginBottom: 8,
+  },
+  progressBar: {
+    width: '80%',
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
   },
   progressBarDefault: {
-    height: 3,
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
+    width: '80%',
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 2,
-    marginTop: 4,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4CAF50',
+    borderRadius: 2,
   },
   progressFillDefault: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
+    height: '100%',
+    backgroundColor: '#4CAF50',
     borderRadius: 2,
   },
+
   currentStopInfo: {
     alignItems: "center",
     marginBottom: 16,
@@ -1270,37 +1713,73 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: -1, height: 1 },
     textShadowRadius: 10,
   },
-  // NEW: Completion indicator styles
+
+  // Completion indicator styles
   completedIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    backgroundColor: "rgba(76, 175, 80, 0.2)",
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
+    borderRadius: 12,
+  },
+  completedIndicatorDefault: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(76, 175, 80, 0.2)',
     borderRadius: 12,
   },
   completedText: {
-    color: "#4CAF50",
+    color: '#4CAF50',
     fontSize: 12,
-    fontWeight: "600",
     marginLeft: 4,
+    fontWeight: '600',
   },
-  completedIndicatorDefault: {
-    flexDirection: "row",
-    alignItems: "center",
+  completedTextDefault: {
+    color: '#4CAF50',
+    fontSize: 12,
+    marginLeft: 4,
+    fontWeight: '600',
+  },
+
+  // Location status styles
+  locationStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 4,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
+    alignSelf: 'center',
   },
-  completedTextDefault: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
+  locationStatusDefault: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  locationStatusText: {
+    color: '#fff',
+    fontSize: 11,
     marginLeft: 4,
+    fontWeight: '500',
   },
+  locationStatusTextDefault: {
+    color: '#fff',
+    fontSize: 11,
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+
   controlButtons: {
     flexDirection: "row",
     justifyContent: "center",
@@ -1326,10 +1805,11 @@ const styles = StyleSheet.create({
     borderRadius: 35,
     backgroundColor: "#5CC4C4",
   },
-  // Auto-play styles
+
+  // Auto-play notification styles
   autoPlayNotification: {
     position: "absolute",
-    top: 60,
+    top: 20,
     left: 20,
     right: 20,
     backgroundColor: "rgba(0, 0, 0, 0.8)",
@@ -1356,15 +1836,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
+
+  // Toggle controls styles
+  togglesContainer: {
+    alignItems: "center",
+    marginTop: 12,
+    gap: 8,
+  },
   autoPlayToggle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 12,
     padding: 8,
     backgroundColor: "rgba(255, 255, 255, 0.2)",
     borderRadius: 20,
-    alignSelf: "center",
+    minWidth: 140,
   },
   autoPlayToggleText: {
     color: "#fff",
@@ -1372,11 +1858,27 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     fontWeight: "500",
   },
+  locationAutoPlayToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    borderRadius: 20,
+    minWidth: 160,
+  },
+  locationAutoPlayToggleText: {
+    color: "#fff",
+    fontSize: 12,
+    marginLeft: 6,
+    fontWeight: "500",
+  },
+
   stopsList: {
     backgroundColor: "white",
     borderRadius: 35,
     marginTop: -50,
-    height: "50%",
+    height: "45%",
     width: "auto",
     padding: 10,
   },
@@ -1391,11 +1893,15 @@ const styles = StyleSheet.create({
     color: "#4CAF50",
     fontSize: 16,
   },
-  // NEW: Completion indicator for stops title
   completionIndicator: {
-    color: "#5CC4C4",
+    color: "#FF9800",
     fontSize: 16,
   },
+  locationIndicator: {
+    color: "#4CAF50",
+    fontSize: 16,
+  },
+
   stopItem: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -1416,12 +1922,16 @@ const styles = StyleSheet.create({
   playedStopItem: {
     backgroundColor: "#f0f8f0",
   },
-  // NEW: Completed stop item style
   completedStopItem: {
     backgroundColor: "#f0f8f0",
     borderLeftWidth: 4,
     borderLeftColor: "#4CAF50",
   },
+  nearbyStopItem: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#4CAF50",
+  },
+
   stopIconContainer: {
     width: 32,
     height: 32,
@@ -1437,6 +1947,19 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 14,
   },
+  nearbyStopIcon: {
+    position: 'relative',
+  },
+  locationBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#fff',
+    borderRadius: 6,
+    width: 12,
+    height: 12,
+  },
+
   stopContent: {
     flex: 1,
     flexDirection: "row",
@@ -1456,11 +1979,10 @@ const styles = StyleSheet.create({
   stopTextContent: {
     flex: 1,
   },
-  // NEW: Stop title row for completion badge
   stopTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   stopTitle: {
     fontSize: 15,
@@ -1470,24 +1992,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     flex: 1,
   },
-  // NEW: Completed stop title style
   completedStopTitle: {
     color: "#4CAF50",
-  },
-  // NEW: Completed badge
-  completedBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#4CAF50",
-    justifyContent: "center",
-    alignItems: "center",
-    marginLeft: 8,
-  },
-  completedBadgeText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
   },
   stopType: {
     fontSize: 11,
@@ -1500,6 +2006,40 @@ const styles = StyleSheet.create({
     color: "#5CC4C4",
     fontWeight: "600",
   },
+  nearbyStopDistance: {
+    color: "#4CAF50",
+    fontWeight: "700",
+  },
+
+  // Badge styles
+  completedBadge: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  completedBadgeText: {
+    fontSize: 10,
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  nearbyBadge: {
+    backgroundColor: "#4CAF50",
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+  nearbyBadgeText: {
+    fontSize: 10,
+    color: "#fff",
+  },
+
   mapButton: {
     width: 36,
     height: 36,
@@ -1516,56 +2056,46 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  // NEW: Summary card styles
+
+  // Summary card styles
   summaryCard: {
-    backgroundColor: "#E8F5E8",
+    backgroundColor: "#f8f9fa",
     borderRadius: 12,
     padding: 16,
     marginTop: 16,
     marginBottom: 20,
-    marginHorizontal: 5,
+    borderWidth: 1,
+    borderColor: "#e9ecef",
   },
   summaryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   summaryTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#4CAF50",
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
     marginLeft: 8,
   },
   summaryText: {
     fontSize: 14,
-    color: "#2E7D32",
+    color: '#666',
     lineHeight: 20,
+    textAlign: 'center',
+  },
+  locationHelpText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
+    fontStyle: 'italic',
+    textAlign: 'center',
   },
   congratsText: {
-    fontSize: 14,
-    color: "#1B5E20",
-    fontWeight: "600",
-    marginTop: 8,
-    textAlign: "center",
-  },
-  // TEMPORARY: Debug styles - remove after testing
-  debugContainer: {
-    padding: 10,
-    backgroundColor: 'yellow',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  debugButton: {
-    padding: 8,
-    backgroundColor: 'red',
-    borderRadius: 5,
-    flex: 1,
-    marginHorizontal: 2,
-  },
-  debugButtonText: {
-    color: 'white',
-    fontSize: 10,
-    textAlign: 'center',
+    fontSize: 16,
+    color: '#4CAF50',
     fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 12,
   },
 });
