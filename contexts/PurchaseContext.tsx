@@ -1,9 +1,10 @@
-// contexts/PurchaseContext.tsx - Global purchase state management
+// contexts/PurchaseContext.tsx - Fixed Global purchase state management
 import {
   createContext,
   ReactNode,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
 import { PaymentService } from '../services/PaymentService';
@@ -16,6 +17,7 @@ interface PurchaseContextType {
   addPurchase: (tourId: string) => void;
   refreshPurchases: () => Promise<void>;
   purchaseHistory: any[];
+  clearAllData: () => void; // Add this method
 }
 
 const PurchaseContext = createContext<PurchaseContextType | undefined>(
@@ -30,38 +32,86 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   const [purchasedTours, setPurchasedTours] = useState<string[]>([]);
   const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
+  
+  // Track the current user ID to detect user changes
+  const currentUserIdRef = useRef<string | null>(null);
   const { user } = useAuth();
   const paymentService = PaymentService.getInstance();
 
-  // Load purchases when user signs in
+  // Handle user changes and logout
   useEffect(() => {
-    if (user) {
-      loadUserPurchases();
-    } else {
-      // Clear purchases when user signs out
+    const userId = user?.id || null;
+    const previousUserId = currentUserIdRef.current;
+
+    console.log('PurchaseContext: User change detected', {
+      previousUserId,
+      currentUserId: userId,
+      userEmail: user?.email
+    });
+
+    // Case 1: User logged out
+    if (!user || !userId) {
+      console.log('PurchaseContext: User logged out, clearing purchases');
       setPurchasedTours([]);
       setPurchaseHistory([]);
-    }
-  }, [user]);
-
-  const loadUserPurchases = async () => {
-    if (!user) {
+      setIsLoadingPurchases(false);
+      currentUserIdRef.current = null;
+      
+      // Clear PaymentService cache when user logs out
+      paymentService.clearCache();
       return;
     }
 
+    // Case 2: User changed (different user logged in)
+    if (previousUserId && previousUserId !== userId) {
+      console.log('PurchaseContext: Different user detected, clearing old data');
+      setPurchasedTours([]);
+      setPurchaseHistory([]);
+      setIsLoadingPurchases(false);
+      
+      // Force clear any cached data in PaymentService
+      paymentService.clearCache();
+    }
+
+    // Case 3: New user logged in or user changed
+    if (userId !== previousUserId) {
+      currentUserIdRef.current = userId;
+      console.log('PurchaseContext: Loading purchases for user:', userId);
+      
+      // Small delay to ensure state is cleared before loading new data
+      setTimeout(() => {
+        loadUserPurchases();
+      }, 100);
+    }
+
+  }, [user?.id]); // Only depend on user.id to detect actual user changes
+
+  const loadUserPurchases = async () => {
+    if (!user?.id) {
+      console.log('PurchaseContext: No user, skipping purchase load');
+      return;
+    }
+
+    console.log('PurchaseContext: Loading purchases for user:', user.id);
     setIsLoadingPurchases(true);
 
     try {
       // Load both purchased tour IDs and full purchase history
       const [tourIds, history] = await Promise.all([
-        paymentService.getUserPurchases(),
+        paymentService.getUserPurchases(true), // Force fresh data
         paymentService.getPurchaseHistory(),
       ]);
 
+      console.log('PurchaseContext: Loaded purchases:', {
+        userId: user.id,
+        tourIds,
+        historyCount: history.length
+      });
 
       setPurchasedTours(tourIds);
       setPurchaseHistory(history);
     } catch (error) {
+      console.error('PurchaseContext: Error loading purchases:', error);
       // Don't throw error, just log it and continue with empty state
       setPurchasedTours([]);
       setPurchaseHistory([]);
@@ -71,21 +121,62 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   };
 
   const hasPurchased = (tourId: string): boolean => {
+    // Safety check - if no user is logged in, return false immediately
+    if (!user?.id) {
+      console.log(`PurchaseContext: No user logged in, returning false for tour ${tourId}`);
+      return false;
+    }
+
+    // Safety check - if current user doesn't match the stored user, clear data first
+    if (currentUserIdRef.current && currentUserIdRef.current !== user.id) {
+      console.log('PurchaseContext: User mismatch detected in hasPurchased, clearing data');
+      setPurchasedTours([]);
+      setPurchaseHistory([]);
+      currentUserIdRef.current = user.id;
+      return false;
+    }
+
     const purchased = purchasedTours.includes(tourId);
+    
+    // Add debug logging
+    console.log(`PurchaseContext: hasPurchased(${tourId}) = ${purchased}`, {
+      userId: user.id,
+      currentUserIdRef: currentUserIdRef.current,
+      purchasedTours,
+      tourId
+    });
+    
     return purchased;
   };
 
   const addPurchase = (tourId: string) => {
+    console.log('PurchaseContext: Adding purchase for tour:', tourId);
     setPurchasedTours((prev) => {
       if (!prev.includes(tourId)) {
-        return [...prev, tourId];
+        const newPurchases = [...prev, tourId];
+        console.log('PurchaseContext: Updated purchases:', newPurchases);
+        return newPurchases;
       }
       return prev;
     });
   };
 
   const refreshPurchases = async () => {
+    console.log('PurchaseContext: Manual refresh requested');
+    
+    // Clear PaymentService cache first
+    paymentService.clearCache();
+    
     await loadUserPurchases();
+  };
+
+  const clearAllData = () => {
+    console.log('PurchaseContext: Manually clearing all purchase data');
+    setPurchasedTours([]);
+    setPurchaseHistory([]);
+    setIsLoadingPurchases(false);
+    currentUserIdRef.current = null;
+    paymentService.clearCache();
   };
 
   const value: PurchaseContextType = {
@@ -95,6 +186,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
     addPurchase,
     refreshPurchases,
     purchaseHistory,
+    clearAllData,
   };
 
   return (
