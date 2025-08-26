@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx - Minimal fix: ONLY add offline image functionality to existing code
+// app/(tabs)/index.tsx - Fixed with proper progress tracking and offline support
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -34,15 +34,20 @@ export default function ToursScreen() {
   const [isLoadingTours, setIsLoadingTours] = useState(true);
   const [toursError, setToursError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [dataSource, setDataSource] = useState<"online" | "offline" | "mixed">(
-    "online"
-  );
-  // Add this state at the top
+  const [dataSource, setDataSource] = useState<"online" | "offline" | "mixed">("online");
   const [imageUris, setImageUris] = useState<Record<string, string>>({});
 
   const { user } = useAuth();
-  const { totalVisitedPlaces } = useProgress();
+
+  // Use proper progress hook methods
+  const { 
+    getTotalCompletedCount,
+    isLoading: progressLoading,
+    refreshProgress 
+  } = useProgress();
+  
   const { hasPurchased, isLoadingPurchases } = usePurchases();
+  
   const {
     offlineTours,
     isLoadingOffline,
@@ -51,15 +56,16 @@ export default function ToursScreen() {
     isOnline,
     isTourOffline,
     getOfflineTour,
-    getOfflineImagePath, // ADD this line to your existing useOffline
+    getOfflineImagePath,
   } = useOffline();
 
-  // ONLY ADD this new useEffect for offline image handling
+  // Load offline images with proper user ID handling
   useEffect(() => {
-    const loadAllTourImages = async () => {
-      if (tours.length === 0) return;
 
-      console.log(`🖼️ Loading images for ${tours.length} tours`);
+    const loadAllTourImages = async () => {
+      if (tours.length === 0 || !user) return;
+
+      console.log(`Loading images for ${tours.length} tours`);
       const uris: Record<string, string> = {};
 
       for (const tour of tours) {
@@ -71,57 +77,55 @@ export default function ToursScreen() {
 
           if (isOffline) {
             // For offline tours, get the offline image path
-            console.log(`📱 Getting offline image for tour: ${tour.id}`);
+            console.log(`Getting offline image for tour: ${tour.id}`);
             const offlineImagePath = await getOfflineImagePath(tour.id, 'main');
 
             if (offlineImagePath) {
               uris[tour.id] = offlineImagePath;
-              console.log(`✅ Offline image loaded for tour ${tour.id}: ${offlineImagePath}`);
+              console.log(`Offline image loaded for tour ${tour.id}: ${offlineImagePath}`);
             } else {
-              console.warn(`⚠️ No offline image found for tour ${tour.id}`);
+              console.warn(`No offline image found for tour ${tour.id}`);
               // Fallback to online image if offline image not found
               if (isOnline && tour.image) {
                 const onlineUri = await getImageUrl(tour.image, tour.id, 'main');
                 if (onlineUri) {
                   uris[tour.id] = onlineUri;
-                  console.log(`🌐 Fallback to online image for tour ${tour.id}`);
+                  console.log(`Fallback to online image for tour ${tour.id}`);
                 }
               }
             }
           } else {
             // For online tours, get the online image
             if (tour.image) {
-              console.log(`🌐 Getting online image for tour: ${tour.id}`);
+              console.log(`Getting online image for tour: ${tour.id}`);
               const onlineUri = await getImageUrl(tour.image, tour.id, 'main');
               if (onlineUri) {
                 uris[tour.id] = onlineUri;
-                console.log(`✅ Online image loaded for tour ${tour.id}`);
+                console.log(`Online image loaded for tour ${tour.id}`);
               }
             }
           }
         } catch (error) {
-          console.warn(`❌ Failed to load image for tour ${tour.id}:`, error);
+          console.warn(`Failed to load image for tour ${tour.id}:`, error);
         }
       }
 
       setImageUris(uris);
-      console.log(`📸 Loaded ${Object.keys(uris).length}/${tours.length} tour images`);
+      console.log(`Loaded ${Object.keys(uris).length}/${tours.length} tour images`);
     };
 
     loadAllTourImages();
-  }, [tours, isTourOffline, getOfflineImagePath, isOnline]);
+  }, [tours, isTourOffline, getOfflineImagePath, isOnline, user]);
 
   // Load tours on component mount
   useEffect(() => {
     loadTours();
   }, []);
 
-  // Watch for offline tours changes
+  // Watch for offline tours changes with proper dependency
   useEffect(() => {
-    if (offlineTours.length > 0 && tours.length === 0) {
-      console.log(
-        "📱 No online tours but found offline tours, using offline data"
-      );
+    if (offlineTours.length > 0 && tours.length === 0 && !isLoadingTours) {
+      console.log("No online tours but found offline tours, using offline data");
       setTours(
         offlineTours.map((content) => ({
           ...content.tourData,
@@ -131,20 +135,18 @@ export default function ToursScreen() {
       setDataSource("offline");
       setIsLoadingTours(false);
     }
-  }, [offlineTours, tours.length]);
+  }, [offlineTours, tours.length, isLoadingTours]);
 
   // Enhanced load tours function with offline-first approach
   const loadTours = async () => {
     try {
       setIsLoadingTours(true);
       setToursError(null);
-      console.log("📱 Loading tours with offline-first approach...");
+      console.log("Loading tours with offline-first approach...");
 
       // First, always show offline tours if we have them (immediate response)
       if (offlineTours.length > 0 && !refreshing) {
-        console.log(
-          `📱 Showing ${offlineTours.length} offline tours immediately`
-        );
+        console.log(`Showing ${offlineTours.length} offline tours immediately`);
         setTours(
           offlineTours.map((content) => ({
             ...content.tourData,
@@ -157,29 +159,22 @@ export default function ToursScreen() {
 
       // Then try to fetch online tours (if connected)
       if (isOnline) {
-        console.log(
-          "🌐 Network available, fetching latest tours from Supabase..."
-        );
+        console.log("Network available, fetching latest tours from Supabase...");
 
         try {
           const onlineToursData = await getAllTours();
-          console.log(
-            `🌐 Loaded ${onlineToursData.length} tours from Supabase`
-          );
+          console.log(`Loaded ${onlineToursData.length} tours from Supabase`);
 
           // Merge online and offline tours
           const mergedTours = mergeToursData(onlineToursData, offlineTours);
           setTours(mergedTours);
           setDataSource(offlineTours.length > 0 ? "mixed" : "online");
         } catch (onlineError) {
-          console.warn(
-            "⚠️ Failed to load online tours, keeping offline data:",
-            onlineError
-          );
+          console.warn("Failed to load online tours, keeping offline data:", onlineError);
 
           // If we have offline tours, keep using them
           if (offlineTours.length > 0) {
-            console.log("📱 Using offline tours as fallback");
+            console.log("Using offline tours as fallback");
             setTours(
               offlineTours.map((content) => ({
                 ...content.tourData,
@@ -193,11 +188,11 @@ export default function ToursScreen() {
           }
         }
       } else {
-        console.log("🔌 No network connection");
+        console.log("No network connection");
 
         // If offline and we have cached tours, use them
         if (offlineTours.length > 0) {
-          console.log("📱 Using offline tours (no network)");
+          console.log("Using offline tours (no network)");
           setTours(
             offlineTours.map((content) => ({
               ...content.tourData,
@@ -207,17 +202,15 @@ export default function ToursScreen() {
           setDataSource("offline");
         } else {
           // No network and no offline tours
-          throw new Error(
-            "No internet connection and no offline tours available"
-          );
+          throw new Error("No internet connection and no offline tours available");
         }
       }
     } catch (error) {
-      console.error("❌ Failed to load tours:", error);
+      console.error("Failed to load tours:", error);
 
       // If we have any offline tours, use them as last resort
       if (offlineTours.length > 0) {
-        console.log("📱 Using offline tours as error fallback");
+        console.log("Using offline tours as error fallback");
         setTours(
           offlineTours.map((content) => ({
             ...content.tourData,
@@ -250,7 +243,7 @@ export default function ToursScreen() {
   // Helper function to merge online and offline tour data
   const mergeToursData = (
     onlineTours: Tour[],
-    offlineTours: OfflineContent[]
+    offlineTours: any[] // OfflineContent[]
   ): Tour[] => {
     const mergedTours: Tour[] = [];
     const offlineIds = new Set(offlineTours.map((ot) => ot.tourId));
@@ -276,11 +269,24 @@ export default function ToursScreen() {
     return mergedTours;
   };
 
-  // Pull to refresh function
+  // Pull to refresh function with progress refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadTours();
-    setRefreshing(false);
+    try {
+      // Refresh tours
+      await loadTours();
+      // Also refresh progress data if user is logged in
+      if (user) {
+        await refreshProgress();
+        // Explicitly refresh the completed stops count
+        const count = await getTotalCompletedCount(user.id);
+        setTotalCompletedStops(count);
+      }
+    } catch (error) {
+      console.error('Error during refresh:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleTourPress = (tourId: string) => {
@@ -291,9 +297,49 @@ export default function ToursScreen() {
     router.push(`/tour/player/${tourId}`);
   };
 
+  // Get completed tours count - count purchased tours (owned tours)
   const getCompletedToursCount = () => {
     return tours.filter((tour) => hasPurchased(tour.id)).length;
   };
+
+  // FIXED: Get total completed stops using proper progress hook
+  const [totalCompletedStops, setTotalCompletedStops] = useState(0);
+
+useEffect(() => {
+  const loadCompletedStops = async () => {
+    if (user && !progressLoading) {
+      try {
+        console.log('=== DEBUG: Loading completed stops ===');
+        console.log('Current user object:', user);
+        console.log('User ID being passed:', user.id);
+        console.log('User email:', user.email);
+        
+        // Check if user.id exists and is valid
+        if (!user.id) {
+          console.error('ERROR: user.id is null or undefined!');
+          setTotalCompletedStops(0);
+          return;
+        }
+        
+        const count = await getTotalCompletedCount(user.id);
+        console.log('Returned count from getTotalCompletedCount:', count);
+        console.log('=== END DEBUG ===');
+        
+        setTotalCompletedStops(count);
+      } catch (error) {
+        console.error('Error loading completed stops count:', error);
+        setTotalCompletedStops(0);
+      }
+    } else if (!user) {
+      console.log('No user logged in, resetting count to 0');
+      setTotalCompletedStops(0);
+    } else {
+      console.log('Progress still loading, waiting...');
+    }
+  };
+
+  loadCompletedStops();
+}, [user, progressLoading, getTotalCompletedCount]);
 
   // Safe rendering helpers
   const renderUserName = () => {
@@ -331,7 +377,7 @@ export default function ToursScreen() {
     return `${count} stops`;
   };
 
-  // Render data source indicator
+  // FIXED: Render data source indicator - corrected the logic
   const renderDataSourceIndicator = () => {
     if (dataSource === "offline") {
       return (
@@ -341,19 +387,17 @@ export default function ToursScreen() {
         </View>
       );
     } else if (dataSource === "mixed") {
-      setTimeout(() => {
-        return (
-          <View style={styles.dataSourceIndicator}>
-            <Ionicons name="cloud-done" size={16} color="#4CAF50" />
-            <Text style={styles.dataSourceText}>Online </Text>
-          </View>
-        );
-      }, 2000)
+      return (
+        <View style={[styles.dataSourceIndicator, { backgroundColor: "rgba(76, 175, 80, 0.1)" }]}>
+          <Ionicons name="cloud-done" size={16} color="#4CAF50" />
+          <Text style={[styles.dataSourceText, { color: "#4CAF50" }]}>Online + Offline</Text>
+        </View>
+      );
     }
     return null;
   };
 
-  // Loading state
+  // Loading state - don't show loading if we have offline tours
   if (
     isLoadingPurchases ||
     (isLoadingTours && !refreshing && tours.length === 0)
@@ -367,7 +411,7 @@ export default function ToursScreen() {
           </Text>
           {!isOnline && (
             <Text style={styles.offlineHint}>
-              📱 Checking for offline tours...
+              Checking for offline tours...
             </Text>
           )}
         </View>
@@ -443,7 +487,7 @@ export default function ToursScreen() {
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeText}>
-            Welcome back, {renderUserName()}! 👋
+            Welcome back, {renderUserName()}!
           </Text>
           <Text style={styles.welcomeSubtext}>
             {isOnline
@@ -467,7 +511,7 @@ export default function ToursScreen() {
 
           {tours.map((tour) => {
             if (!tour || !tour.id) {
-              console.warn("❌ Invalid tour data:", tour);
+              console.warn("Invalid tour data:", tour);
               return null;
             }
 
@@ -481,23 +525,21 @@ export default function ToursScreen() {
                 onPress={() => handleTourPress(tour.id)}
                 activeOpacity={0.8}
               >
-                {/* Tour Image - ONLY CHANGE THIS LINE */}
+                {/* Tour Image */}
                 <View style={styles.imageContainer}>
                   <Image
-                    source={
-                      { uri: imageUris[tour.id] || tour.image }
-                    }
+                    source={{ uri: imageUris[tour.id] || tour.image }}
                     style={styles.tourImage}
                     resizeMode="cover"
                     onError={(e) => {
                       console.log(
-                        "❌ Image load error for tour:",
+                        "Image load error for tour:",
                         tour.id,
                         e.nativeEvent.error
                       );
                     }}
                     onLoad={() => {
-                      console.log("✅ Image loaded for tour:", tour.id);
+                      console.log("Image loaded for tour:", tour.id);
                     }}
                   />
 
@@ -649,19 +691,19 @@ export default function ToursScreen() {
 
             <View style={styles.statCard}>
               <Ionicons name="location" size={32} color="#5CC4C4" />
-              <Text style={styles.statNumber}>{totalVisitedPlaces || 0}</Text>
-              <Text style={styles.statLabel}>Places Visited</Text>
+              <Text style={styles.statNumber}>{totalCompletedStops}</Text>
+              <Text style={styles.statLabel}>Stops Completed</Text>
             </View>
           </View>
 
-          {/* Storage Usage (if any offline content) 
+          {/* Storage Usage (if any offline content) */}
           {offlineTours.length > 0 && (
             <View style={styles.storageInfo}>
               <Text style={styles.storageText}>
-                💾 Offline storage: {formatStorageSize(totalStorageUsed)}
+                Offline storage: {formatStorageSize(totalStorageUsed)}
               </Text>
             </View>
-          )} */}
+          )}
         </View>
 
         {/* Bottom Padding */}

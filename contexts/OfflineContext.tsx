@@ -65,7 +65,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
   // Monitor network connectivity
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      console.log(`🌐 Network status changed: ${state.isConnected ? 'Online' : 'Offline'}`);
+      console.log(`Network status changed: ${state.isConnected ? 'Online' : 'Offline'}`);
       setIsOnline(state.isConnected ?? false);
     });
 
@@ -90,22 +90,20 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
     setIsLoadingOffline(true);
 
     try {
-      console.log('🔄 Loading offline content...');
+      console.log(`Loading offline content for user: ${user.id}`);
 
-      // Use OfflineService to get all offline tours
-      const offlineContent = await offlineService.getAllOfflineTours();
-      console.log(`📊 Found ${offlineContent.length} offline tours`);
+      // FIXED: Use user-specific method
+      const offlineContent = await offlineService.getAllOfflineToursForUser(user.id);
+      console.log(`Found ${offlineContent.length} offline tours for user ${user.id}`);
 
       setOfflineTours(offlineContent);
 
-      // Get storage stats
-      const stats = await offlineService.getStorageStats();
+      // Get user-specific storage stats
+      const stats = await offlineService.getStorageStatsForUser(user.id);
       setTotalStorageUsed(stats.totalSize);
 
-      console.log(`📊 Total storage used: ${stats.totalSize} bytes`);
-
     } catch (error) {
-      console.error('❌ Error loading offline content:', error);
+      console.error('Error loading offline content:', error);
       setOfflineTours([]);
       setTotalStorageUsed(0);
     } finally {
@@ -127,182 +125,191 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
     [offlineTours]
   );
 
-const downloadTour = useCallback(
-  async (tourId: string): Promise<boolean> => {
-    // Check network connectivity
-    if (!isOnline) {
-      console.error(`❌ Cannot download tour ${tourId}: No internet connection`);
-      return false;
-    }
-
-    try {
-      console.log(`🔄 Starting download for tour: ${tourId}`);
-
-      // Fetch tour data from Supabase
-      const tour = await getTourById(tourId);
-      if (!tour) {
-        console.error(`❌ Tour ${tourId} not found in Supabase`);
+  const downloadTour = useCallback(
+    async (tourId: string): Promise<boolean> => {
+      // Check network connectivity
+      if (!isOnline) {
+        console.error(`Cannot download tour ${tourId}: No internet connection`);
         return false;
       }
 
-      // Check if already downloaded
-      if (isTourOffline(tourId)) {
-        console.log(`✅ Tour ${tourId} already offline`);
-        return true;
+      if (!user) {
+        console.error(`Cannot download tour ${tourId}: No user logged in`);
+        return false;
       }
 
-      // Reset cancellation token
-      setDownloadCancellationTokens(prev => {
-        const newMap = new Map(prev);
-        newMap.set(tourId, false);
-        return newMap;
-      });
+      try {
+        console.log(`Starting download for tour: ${tourId}`);
 
-      // Calculate total items to download
-      const audioFiles = tour.stops.filter(stop => stop.audio).length;
-      const imageFiles = [
-        tour.image,
-        ...tour.stops.map(stop => stop.image)
-      ].filter(Boolean).length;
-      const totalItems = audioFiles + imageFiles;
-
-      console.log(`📊 Total items to download: ${totalItems}`);
-
-      // FIXED: Initialize progress with correct values
-      setDownloadProgress(prev => {
-        const newMap = new Map(prev);
-        newMap.set(tourId, {
-          tourId,
-          totalItems: totalItems,        // ✅ Use totalItems variable
-          downloadedItems: 0,            // ✅ Start at 0
-          currentFile: 'Preparing download...', // ✅ Initial message
-          progress: 0,                   // ✅ Start at 0
-          status: 'downloading'
-        });
-        return newMap;
-      });
-
-      // Use OfflineService to download with progress tracking
-      const success = await offlineService.downloadTourWithAssets(
-        tour,
-        (current: number = 0, total: number = 0, currentFile: string = '') => {
-          // Safety checks
-          if (typeof current !== 'number') current = 0;
-          if (typeof total !== 'number') total = 0;
-          if (typeof currentFile !== 'string') currentFile = '';
-
-          // Check for cancellation
-          const isCancelled = downloadCancellationTokens.get(tourId);
-          if (isCancelled) {
-            console.log(`❌ Download cancelled for tour ${tourId}`);
-            return;
-          }
-
-          setDownloadProgress(prev => {
-            const newMap = new Map(prev);
-            newMap.set(tourId, {
-              tourId,
-              totalItems: total,         // ✅ Now total comes from callback
-              downloadedItems: current,  // ✅ Now current comes from callback
-              currentFile,              // ✅ Now currentFile comes from callback
-              progress: total > 0 ? Math.min(current / total, 1) : 0,
-              status: 'downloading'
-            });
-            return newMap;
-          });
+        // Fetch tour data from Supabase
+        const tour = await getTourById(tourId);
+        if (!tour) {
+          console.error(`Tour ${tourId} not found in Supabase`);
+          return false;
         }
-      );
 
-      if (success) {
-        // Mark as completed
+        // Check if already downloaded
+        if (isTourOffline(tourId)) {
+          console.log(`Tour ${tourId} already offline`);
+          return true;
+        }
+
+        // Reset cancellation token
+        setDownloadCancellationTokens(prev => {
+          const newMap = new Map(prev);
+          newMap.set(tourId, false);
+          return newMap;
+        });
+
+        // Calculate total items to download
+        const audioFiles = tour.stops.filter(stop => stop.audio).length;
+        const imageFiles = [
+          tour.image,
+          ...tour.stops.map(stop => stop.image)
+        ].filter(Boolean).length;
+        const totalItems = audioFiles + imageFiles;
+
+        console.log(`Total items to download: ${totalItems}`);
+
+        // Initialize progress with correct values
         setDownloadProgress(prev => {
           const newMap = new Map(prev);
           newMap.set(tourId, {
             tourId,
-            totalItems,
-            downloadedItems: totalItems,
-            currentFile: 'Download complete!',
-            progress: 1,
-            status: 'completed'
+            totalItems: totalItems,
+            downloadedItems: 0,
+            currentFile: 'Preparing download...',
+            progress: 0,
+            status: 'downloading'
           });
           return newMap;
         });
 
-        console.log(`✅ Tour ${tourId} downloaded successfully`);
+        // FIXED: Use user-specific download method
+        const success = await offlineService.downloadTourWithAssetsForUser(
+          tour,
+          user.id,
+          (current: number = 0, total: number = 0, currentFile: string = '') => {
+            // Safety checks
+            if (typeof current !== 'number') current = 0;
+            if (typeof total !== 'number') total = 0;
+            if (typeof currentFile !== 'string') currentFile = '';
 
-        // Remove progress after delay
+            // Check for cancellation
+            const isCancelled = downloadCancellationTokens.get(tourId);
+            if (isCancelled) {
+              console.log(`Download cancelled for tour ${tourId}`);
+              return;
+            }
+
+            setDownloadProgress(prev => {
+              const newMap = new Map(prev);
+              newMap.set(tourId, {
+                tourId,
+                totalItems: total,
+                downloadedItems: current,
+                currentFile,
+                progress: total > 0 ? Math.min(current / total, 1) : 0,
+                status: 'downloading'
+              });
+              return newMap;
+            });
+          }
+        );
+
+        if (success) {
+          // Mark as completed
+          setDownloadProgress(prev => {
+            const newMap = new Map(prev);
+            newMap.set(tourId, {
+              tourId,
+              totalItems,
+              downloadedItems: totalItems,
+              currentFile: 'Download complete!',
+              progress: 1,
+              status: 'completed'
+            });
+            return newMap;
+          });
+
+          console.log(`Tour ${tourId} downloaded successfully`);
+
+          // Remove progress after delay
+          setTimeout(() => {
+            setDownloadProgress(prev => {
+              const newMap = new Map(prev);
+              newMap.delete(tourId);
+              return newMap;
+            });
+          }, 2000);
+
+          // Refresh offline content to include the new tour
+          await loadOfflineContent();
+          return true;
+        } else {
+          throw new Error('Download failed');
+        }
+
+      } catch (error) {
+        console.error(`Error downloading tour ${tourId}:`, error);
+
+        // Update progress to show error
+        setDownloadProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.set(tourId, {
+            tourId,
+            totalItems: 0,
+            downloadedItems: 0,
+            currentFile: 'Download failed',
+            progress: 0,
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+          return newMap;
+        });
+
+        // Remove error progress after delay
         setTimeout(() => {
           setDownloadProgress(prev => {
             const newMap = new Map(prev);
             newMap.delete(tourId);
             return newMap;
           });
-        }, 2000);
+        }, 3000);
 
-        // Refresh offline content to include the new tour
-        await loadOfflineContent();
-        return true;
-      } else {
-        throw new Error('Download failed');
+        return false;
       }
-
-    } catch (error) {
-      console.error(`❌ Error downloading tour ${tourId}:`, error);
-
-      // Update progress to show error
-      setDownloadProgress(prev => {
-        const newMap = new Map(prev);
-        newMap.set(tourId, {
-          tourId,
-          totalItems: 0,
-          downloadedItems: 0,
-          currentFile: 'Download failed',
-          progress: 0,
-          status: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-        return newMap;
-      });
-
-      // Remove error progress after delay
-      setTimeout(() => {
-        setDownloadProgress(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(tourId);
-          return newMap;
-        });
-      }, 3000);
-
-      return false;
-    }
-  },
-  [isTourOffline, loadOfflineContent, downloadCancellationTokens, isOnline, offlineService]
-);
+    },
+    [isTourOffline, loadOfflineContent, downloadCancellationTokens, isOnline, offlineService, user]
+  );
 
   const removeTour = useCallback(
     async (tourId: string): Promise<void> => {
+      if (!user) {
+        throw new Error('User not logged in');
+      }
+
       try {
-        console.log(`🗑️ Removing offline tour ${tourId}`);
+        console.log(`Removing offline tour ${tourId}`);
 
-        // Use OfflineService to remove tour
-        await offlineService.removeTour(tourId);
+        // FIXED: Use user-specific removal method
+        await offlineService.removeTourForUser(user.id, tourId);
 
-        console.log(`✅ Tour ${tourId} removed from offline storage`);
+        console.log(`Tour ${tourId} removed from offline storage`);
 
         // Refresh offline content
         await loadOfflineContent();
       } catch (error) {
-        console.error(`❌ Error removing tour ${tourId}:`, error);
+        console.error(`Error removing tour ${tourId}:`, error);
         throw error;
       }
     },
-    [loadOfflineContent, offlineService]
+    [loadOfflineContent, offlineService, user]
   );
 
-  //function to cancel download 
   const cancelDownload = useCallback(async (tourId: string): Promise<void> => {
     try {
-      console.log(`❌ Cancelling download for tour ${tourId}`);
+      console.log(`Cancelling download for tour ${tourId}`);
 
       // Set cancellation token
       setDownloadCancellationTokens(prev => {
@@ -312,7 +319,7 @@ const downloadTour = useCallback(
       });
 
       // Call OfflineService to cancel download
-      await offlineService.cancelDownload(tourId); // ADD this line
+      await offlineService.cancelDownload(tourId);
 
       // Update progress to cancelled status
       setDownloadProgress(prev => {
@@ -344,48 +351,52 @@ const downloadTour = useCallback(
       }, 1000);
 
     } catch (error) {
-      console.error(`❌ Error cancelling download for tour ${tourId}:`, error);
+      console.error(`Error cancelling download for tour ${tourId}:`, error);
       throw error;
     }
-  }, [offlineService]); // ADD offlineService to dependencies
+  }, [offlineService]);
 
   const getOfflineAudioPath = useCallback(
     async (tourId: string, stopId: string): Promise<string | null> => {
-      if (!isTourOffline(tourId)) {
+      if (!isTourOffline(tourId) || !user) {
         return null;
       }
 
       // Use OfflineService to get audio path
-      const audioPath = await offlineService.getOfflineAudioPath(tourId, stopId);
+      const audioPath = await offlineService.getOfflineAudioPath(tourId, stopId, user.id);
       return audioPath;
     },
-    [isTourOffline, offlineService]
+    [isTourOffline, offlineService, user]
   );
 
   const getOfflineImagePath = useCallback(
     async (tourId: string, imageKey: string): Promise<string | null> => {
-      if (!isTourOffline(tourId)) {
+      if (!isTourOffline(tourId) || !user) {
         return null;
       }
 
       // Use OfflineService to get image path
-      const imagePath = await offlineService.getOfflineImagePath(tourId, imageKey);
+      const imagePath = await offlineService.getOfflineImagePath(tourId, imageKey, user.id);
       return imagePath;
     },
-    [isTourOffline, offlineService]
+    [isTourOffline, offlineService, user]
   );
 
   const refreshOfflineContent = useCallback(async (): Promise<void> => {
-    console.log('🔄 Refreshing offline content...');
+    console.log('Refreshing offline content...');
     await loadOfflineContent();
   }, [loadOfflineContent]);
 
   const clearAllOfflineContent = useCallback(async (): Promise<void> => {
-    try {
-      console.log('🗑️ Clearing all offline content...');
+    if (!user) {
+      throw new Error('User not logged in');
+    }
 
-      // Use OfflineService to clear all content
-      await offlineService.clearAllOfflineContent();
+    try {
+      console.log('Clearing all offline content...');
+
+      // FIXED: Use user-specific clear method
+      await offlineService.clearAllOfflineContentForUser(user.id);
 
       // Reset state
       setOfflineTours([]);
@@ -393,12 +404,12 @@ const downloadTour = useCallback(
       setDownloadProgress(new Map());
       setDownloadCancellationTokens(new Map());
 
-      console.log('✅ All offline content cleared');
+      console.log('All offline content cleared');
     } catch (error) {
-      console.error('❌ Error clearing offline content:', error);
+      console.error('Error clearing offline content:', error);
       throw error;
     }
-  }, [offlineService]);
+  }, [offlineService, user]);
 
   const formatStorageSize = useCallback((bytes: number): string => {
     if (bytes === 0) return '0 B';

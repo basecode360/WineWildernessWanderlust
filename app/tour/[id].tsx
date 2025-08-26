@@ -1,4 +1,5 @@
 // app/tour/[id].tsx - Fixed Tour Detail Screen with async image loading
+import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
@@ -22,7 +23,7 @@ import { ERROR_MESSAGES } from "../../utils/constants";
 
 export default function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-
+  const { user } = useAuth(); 
   // Tour state
   const [tour, setTour] = useState<Tour | null>(null);
   const [isLoadingTour, setIsLoadingTour] = useState(true);
@@ -179,20 +180,19 @@ export default function TourDetailScreen() {
         [
           { text: "Cancel", style: "cancel" },
           {
-            text: "Remove",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await removeTour(id as string);
-                Alert.alert("Success", "Tour removed from offline storage.");
-              } catch (error) {
-                Alert.alert(
-                  "Error",
-                  "Failed to remove tour from offline storage."
-                );
-              }
-            },
-          },
+  text: "Remove",
+  style: "destructive",
+  onPress: async () => {
+    try {
+      // Pass both tourId and userId
+      await removeTour(id as string);
+      Alert.alert("Success", "Tour removed from offline storage.");
+    } catch (error) {
+      Alert.alert("Error", "Failed to remove tour from offline storage.");
+    }
+  },
+},
+
         ]
       );
       return;

@@ -1,4 +1,4 @@
-// services/tourServices.ts - Fixed version with better offline integration
+// services/tourServices.ts - Fixed version with proper user ID handling
 import { supabase } from "../lib/supabase";
 import { Tour, TourStop } from "../types/tour";
 import { ERROR_MESSAGES } from "../utils/constants";
@@ -69,15 +69,16 @@ const ensureValidTriggerCoordinates = (triggerLat?: number | null, triggerLng?: 
 export const getImageUrl = async (
   imagePath: string | null,
   tourId?: string,
-  imageKey?: string
+  imageKey?: string,
+  userId?: string
 ): Promise<string | null> => {
   if (!imagePath) return null;
 
   const offlineService = getOfflineService();
   
-  // Check for offline version first
-  if (tourId && imageKey) {
-    const offlinePath = await offlineService.getOfflineImagePath(tourId, imageKey);
+  // Check for offline version first (only if userId provided)
+  if (tourId && imageKey && userId) {
+    const offlinePath = await offlineService.getOfflineImagePath(tourId, imageKey, userId);
     if (offlinePath) {
       console.log("🖼️ Using offline image:", offlinePath);
       return `file://${offlinePath}`;
@@ -97,15 +98,16 @@ export const getImageUrl = async (
 export const getAudioUrl = async (
   audioPath: string | null,
   tourId?: string,
-  stopId?: string
+  stopId?: string,
+  userId?: string
 ): Promise<string | null> => {
   if (!audioPath) return null;
 
   const offlineService = getOfflineService();
   
-  // Check for offline version first
-  if (tourId && stopId) {
-    const offlinePath = await offlineService.getOfflineAudioPath(tourId, stopId);
+  // Check for offline version first (only if userId provided)
+  if (tourId && stopId && userId) {
+    const offlinePath = await offlineService.getOfflineAudioPath(tourId, stopId, userId);
     if (offlinePath) {
       console.log("🎧 Using offline audio:", offlinePath);
       return `file://${offlinePath}`;
@@ -126,78 +128,82 @@ export const getAudioUrl = async (
   return null;
 };
 
-// Fetch all tours (offline-first approach)
-export const getAllTours = async (): Promise<Tour[]> => {
+// FIXED: Fetch all tours (offline-first approach) with user ID support
+export const getAllTours = async (userId?: string): Promise<Tour[]> => {
   const offlineService = getOfflineService();
   const networkAvailable = await isNetworkAvailable();
 
   console.log(`🔍 Getting all tours (network: ${networkAvailable})`);
 
   try {
-    // Always try offline first
-    const offlineTours = await offlineService.getAllOfflineTours();
+    let offlineTours: any[] = [];
     
-    if (offlineTours.length > 0) {
-      console.log(`📱 Found ${offlineTours.length} offline tours`);
+    // Only try to get offline tours if userId is provided
+    if (userId) {
+      offlineTours = await offlineService.getAllOfflineToursForUser(userId);
       
-      // Transform offline tours to the expected format
-      const transformedTours = await Promise.all(
-        offlineTours.map(async (offlineContent) => {
-          const tour = offlineContent.tourData;
-          
-          // Get offline image paths
-          const mainImagePath = await offlineService.getOfflineImagePath(tour.id, 'main');
-          
-          const transformedStops = await Promise.all(
-            tour.stops.map(async (stop) => {
-              const imageKey = `${stop.id}_image`;
-              const stopImagePath = await offlineService.getOfflineImagePath(tour.id, imageKey);
-              const stopAudioPath = await offlineService.getOfflineAudioPath(tour.id, stop.id);
-              
-              return {
-                ...stop,
-                coordinates: ensureValidCoordinates(stop.lat, stop.lng),
-                triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
-                image: stopImagePath ? `file://${stopImagePath}` : (stop.image || ""),
-                audio: stopAudioPath ? `file://${stopAudioPath}` : (stop.audio || ""),
-              };
-            })
-          );
+      if (offlineTours.length > 0) {
+        console.log(`📱 Found ${offlineTours.length} offline tours for user ${userId}`);
+        
+        // Transform offline tours to the expected format
+        const transformedTours = await Promise.all(
+          offlineTours.map(async (offlineContent) => {
+            const tour = offlineContent.tourData;
+            
+            // Get offline image paths
+            const mainImagePath = await offlineService.getOfflineImagePath(tour.id, 'main', userId);
+            
+            const transformedStops = await Promise.all(
+              tour.stops.map(async (stop) => {
+                const imageKey = `${stop.id}_image`;
+                const stopImagePath = await offlineService.getOfflineImagePath(tour.id, imageKey, userId);
+                const stopAudioPath = await offlineService.getOfflineAudioPath(tour.id, stop.id, userId);
+                
+                return {
+                  ...stop,
+                  coordinates: ensureValidCoordinates(stop.lat, stop.lng),
+                  triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
+                  image: stopImagePath ? `file://${stopImagePath}` : (stop.image || ""),
+                  audio: stopAudioPath ? `file://${stopAudioPath}` : (stop.audio || ""),
+                };
+              })
+            );
 
-          return {
-            ...tour,
-            isDownloaded: true,
-            image: mainImagePath ? `file://${mainImagePath}` : (tour.image || ""),
-            stops: transformedStops,
-          };
-        })
-      );
-      
-      // If we have offline tours and no network, return only offline tours
-      if (!networkAvailable) {
-        return transformedTours;
-      }
-      
-      // If we have network, try to get online tours too and merge
-      try {
-        const onlineTours = await fetchToursFromSupabase();
+            return {
+              ...tour,
+              isDownloaded: true,
+              image: mainImagePath ? `file://${mainImagePath}` : (tour.image || ""),
+              stops: transformedStops,
+            };
+          })
+        );
         
-        // Create a map of offline tour IDs for quick lookup
-        const offlineTourIds = new Set(offlineTours.map(t => t.tourId));
+        // If we have offline tours and no network, return only offline tours
+        if (!networkAvailable) {
+          return transformedTours;
+        }
         
-        // Add online tours that aren't already offline
-        const onlineOnlyTours = onlineTours.filter(tour => !offlineTourIds.has(tour.id));
-        
-        return [...transformedTours, ...onlineOnlyTours];
-      } catch (onlineError) {
-        console.warn('⚠️ Could not fetch online tours, returning offline only:', onlineError);
-        return transformedTours;
+        // If we have network, try to get online tours too and merge
+        try {
+          const onlineTours = await fetchToursFromSupabase(userId);
+          
+          // Create a map of offline tour IDs for quick lookup
+          const offlineTourIds = new Set(offlineTours.map(t => t.tourId));
+          
+          // Add online tours that aren't already offline
+          const onlineOnlyTours = onlineTours.filter(tour => !offlineTourIds.has(tour.id));
+          
+          return [...transformedTours, ...onlineOnlyTours];
+        } catch (onlineError) {
+          console.warn('⚠️ Could not fetch online tours, returning offline only:', onlineError);
+          return transformedTours;
+        }
       }
     }
 
-    // No offline tours, try online if network is available
+    // No offline tours (or no user ID), try online if network is available
     if (networkAvailable) {
-      return await fetchToursFromSupabase();
+      return await fetchToursFromSupabase(userId);
     }
 
     // No offline tours and no network
@@ -209,52 +215,54 @@ export const getAllTours = async (): Promise<Tour[]> => {
   }
 };
 
-// Fetch single tour by ID (offline-first approach)
-export const getTourById = async (tourId: string): Promise<Tour | null> => {
+// FIXED: Fetch single tour by ID (offline-first approach) with user ID support
+export const getTourById = async (tourId: string, userId?: string): Promise<Tour | null> => {
   const offlineService = getOfflineService();
   const networkAvailable = await isNetworkAvailable();
 
   console.log(`🔍 Getting tour ${tourId} (network: ${networkAvailable})`);
 
   try {
-    // Try offline first
-    const offlineContent = await offlineService.getOfflineContent(tourId);
-    
-    if (offlineContent) {
-      console.log(`📱 Found offline tour: ${tourId}`);
+    // Try offline first (only if userId provided)
+    if (userId) {
+      const offlineContent = await offlineService.getOfflineContentForUser(tourId, userId);
       
-      // Transform offline tour to expected format
-      const tour = offlineContent.tourData;
-      const mainImagePath = await offlineService.getOfflineImagePath(tourId, 'main');
-      
-      const transformedStops = await Promise.all(
-        tour.stops.map(async (stop) => {
-          const imageKey = `${stop.id}_image`;
-          const stopImagePath = await offlineService.getOfflineImagePath(tourId, imageKey);
-          const stopAudioPath = await offlineService.getOfflineAudioPath(tourId, stop.id);
-          
-          return {
-            ...stop,
-            coordinates: ensureValidCoordinates(stop.lat, stop.lng),
-            triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
-            image: stopImagePath ? `file://${stopImagePath}` : (stop.image || ""),
-            audio: stopAudioPath ? `file://${stopAudioPath}` : (stop.audio || ""),
-          };
-        })
-      );
+      if (offlineContent) {
+        console.log(`📱 Found offline tour: ${tourId} for user ${userId}`);
+        
+        // Transform offline tour to expected format
+        const tour = offlineContent.tourData;
+        const mainImagePath = await offlineService.getOfflineImagePath(tourId, 'main', userId);
+        
+        const transformedStops = await Promise.all(
+          tour.stops.map(async (stop) => {
+            const imageKey = `${stop.id}_image`;
+            const stopImagePath = await offlineService.getOfflineImagePath(tourId, imageKey, userId);
+            const stopAudioPath = await offlineService.getOfflineAudioPath(tourId, stop.id, userId);
+            
+            return {
+              ...stop,
+              coordinates: ensureValidCoordinates(stop.lat, stop.lng),
+              triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
+              image: stopImagePath ? `file://${stopImagePath}` : (stop.image || ""),
+              audio: stopAudioPath ? `file://${stopAudioPath}` : (stop.audio || ""),
+            };
+          })
+        );
 
-      return {
-        ...tour,
-        isDownloaded: true,
-        image: mainImagePath ? `file://${mainImagePath}` : (tour.image || ""),
-        stops: transformedStops,
-      };
+        return {
+          ...tour,
+          isDownloaded: true,
+          image: mainImagePath ? `file://${mainImagePath}` : (tour.image || ""),
+          stops: transformedStops,
+        };
+      }
     }
 
     // Not available offline, try online
     if (networkAvailable) {
       console.log(`🌐 Fetching tour ${tourId} online`);
-      return await fetchTourFromSupabase(tourId);
+      return await fetchTourFromSupabase(tourId, userId);
     }
 
     // Not available offline and no network
@@ -267,20 +275,20 @@ export const getTourById = async (tourId: string): Promise<Tour | null> => {
   }
 };
 
-// Fetch tours from Supabase (online only)
-const fetchToursFromSupabase = async (): Promise<Tour[]> => {
+// FIXED: Fetch tours from Supabase (online only) with user context
+const fetchToursFromSupabase = async (userId?: string): Promise<Tour[]> => {
   console.log('🌐 Fetching tours from Supabase');
   
   const { data: tours, error } = await supabase
     .from("tours")
-    .select("*, stops_count") // Add stops_count to the select
+    .select("*, stops_count")
     .order("created_at", { ascending: false });
     
   if (error) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${error.message}`);
   if (!tours) return [];
 
   return await Promise.all(tours.map(async (tour) => {
-    const imgUrl = await getImageUrl(tour.image_path);
+    const imgUrl = await getImageUrl(tour.image_path, tour.id, 'main', userId);
     return {
       id: tour.id,
       title: tour.title,
@@ -292,13 +300,13 @@ const fetchToursFromSupabase = async (): Promise<Tour[]> => {
       isPurchased: false,
       isDownloaded: false,
       stops: [],
-      stopsCount: tour.stops_count || 0, // Add this line
+      stopsCount: tour.stops_count || 0,
     };
   }));
 };
 
-// Fetch single tour from Supabase (online only)
- const fetchTourFromSupabase = async (tourId: string): Promise<Tour | null> => {
+// FIXED: Fetch single tour from Supabase (online only) with user context
+const fetchTourFromSupabase = async (tourId: string, userId?: string): Promise<Tour | null> => {
   console.log(`🌐 Fetching tour ${tourId} from Supabase`);
   
   const { data: tour, error: tourError } = await supabase
@@ -310,31 +318,27 @@ const fetchToursFromSupabase = async (): Promise<Tour[]> => {
   if (tourError) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${tourError.message}`);
   if (!tour) return null;
 
-
-    const { data: stops, error: stopsError } = await supabase
-  .from("stops")
-  .select("*")
-  .eq("tour_id", tourId)
-  .order("order_index", { ascending: true, nullsFirst: false }); // set what you want explicitly
-
+  const { data: stops, error: stopsError } = await supabase
+    .from("stops")
+    .select("*")
+    .eq("tour_id", tourId)
+    .order("order_index", { ascending: true, nullsFirst: false });
     
-if (stopsError) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${stopsError.message}`);
+  if (stopsError) throw new Error(`${ERROR_MESSAGES.API_ERROR}: ${stopsError.message}`);
 
-// ADD this null check
-const safeStops = stops || [];
-
+  const safeStops = stops || [];
 
   // Transform stops with proper offline/online URL handling
-const tourStops: TourStop[] = await Promise.all(
-  safeStops.map(async (stop) => ({
+  const tourStops: TourStop[] = await Promise.all(
+    safeStops.map(async (stop) => ({
       id: stop.id,
       title: stop.title,
       type: stop.type,
       coordinates: ensureValidCoordinates(stop.lat, stop.lng),
       triggerCoordinates: ensureValidTriggerCoordinates(stop.trigger_lat, stop.trigger_lng),
-      audio: stop.audio_path ? await getAudioUrl(stop.audio_path, tour.id, stop.id) : "",
+      audio: stop.audio_path ? await getAudioUrl(stop.audio_path, tour.id, stop.id, userId) : "",
       transcript: stop.transcript || "",
-      image: stop.image_path ? await getImageUrl(stop.image_path, tour.id, `${stop.id}_image`) : "",
+      image: stop.image_path ? await getImageUrl(stop.image_path, tour.id, `${stop.id}_image`, userId) : "",
       isPlayed: false,
       address: stop.address || undefined,
       tips: stop.tips || undefined,
@@ -348,7 +352,7 @@ const tourStops: TourStop[] = await Promise.all(
     price: tour.price,
     duration: tour.duration,
     distance: tour.distance,
-    image: await getImageUrl(tour.image_path, tour.id, 'main') || "",
+    image: await getImageUrl(tour.image_path, tour.id, 'main', userId) || "",
     isPurchased: false,
     isDownloaded: false,
     stops: tourStops,
@@ -376,15 +380,15 @@ export const calculateDistance = (
   return R * c; // in metres
 };
 
-// Utility function to check if tour is available offline
-export const isTourAvailableOffline = async (tourId: string): Promise<boolean> => {
+// FIXED: Utility function to check if tour is available offline
+export const isTourAvailableOffline = async (tourId: string, userId: string): Promise<boolean> => {
   const offlineService = getOfflineService();
-  const offlineContent = await offlineService.getOfflineContent(tourId);
+  const offlineContent = await offlineService.getOfflineContentForUser(tourId, userId);
   return offlineContent !== null;
 };
 
-// Utility function to get tour download status
-export const getTourDownloadStatus = async (tourId: string): Promise<{
+// FIXED: Utility function to get tour download status
+export const getTourDownloadStatus = async (tourId: string, userId: string): Promise<{
   isDownloaded: boolean;
   downloadDate?: string;
   size?: number;
@@ -392,10 +396,10 @@ export const getTourDownloadStatus = async (tourId: string): Promise<{
   isIntact?: boolean;
 }> => {
   const offlineService = getOfflineService();
-  const downloadInfo = await offlineService.getTourDownloadInfo(tourId);
+  const downloadInfo = await offlineService.getTourDownloadInfoForUser(tourId, userId);
   
   if (downloadInfo.isDownloaded) {
-    const isIntact = await offlineService.verifyTourIntegrity(tourId);
+    const isIntact = await offlineService.verifyTourIntegrityForUser(tourId, userId);
     return {
       ...downloadInfo,
       isIntact

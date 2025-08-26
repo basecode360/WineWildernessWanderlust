@@ -1,21 +1,21 @@
-// contexts/ProgressContext.tsx - Updated with database integration
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { useAuth } from './AuthContext';
+// contexts/ProgressContext.tsx - Fixed Data Insertion Issue
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { progressService, StopProgress } from '../services/ProgressService';
+import { useAuth } from './AuthContext';
+import { useOffline } from './OfflineContext';
 
 interface ProgressContextType {
   completedStops: StopProgress[];
   totalVisitedPlaces: number;
   isLoading: boolean;
-  markStopCompleted: (tourId: string, stopId: string) => Promise<void>;
+  completedCount: number;
+  markStopCompleted: (stopId: string, tourId?: string) => Promise<void>; // FIXED: Simplified signature
   isStopCompleted: (tourId: string, stopId: string) => boolean;
   getCompletedStopsForTour: (tourId: string) => StopProgress[];
+  getTotalCompletedCount: (userId: string) => Promise<number>;
   refreshProgress: () => Promise<void>;
   clearAllProgress: () => Promise<void>;
   syncProgress: () => Promise<void>;
-  testDatabaseConnection: () => Promise<boolean>;
-  forceResetAllProgress: () => Promise<void>; // Add this
-  debugShowStoredData: () => Promise<void>; // Add this
 }
 
 const ProgressContext = createContext<ProgressContextType | undefined>(undefined);
@@ -23,227 +23,264 @@ const ProgressContext = createContext<ProgressContextType | undefined>(undefined
 export function ProgressProvider({ children }: { children: React.ReactNode }) {
   const [completedStops, setCompletedStops] = useState<StopProgress[]>([]);
   const [totalVisitedPlaces, setTotalVisitedPlaces] = useState(0);
+  const [completedCount, setCompletedCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
+  
   const { user } = useAuth();
+  const { isOnline } = useOffline();
 
   // Load progress when user signs in or component mounts
   useEffect(() => {
     if (user) {
+      console.log(`ProgressContext: User logged in, initializing progress for ${user.id}`);
       initializeProgress();
     } else {
+      console.log('ProgressContext: No user, clearing progress state');
       // Clear progress when user signs out
       setCompletedStops([]);
       setTotalVisitedPlaces(0);
+      setCompletedCount(0);
     }
   }, [user]);
 
   // Initialize progress for logged in user
   const initializeProgress = async () => {
-    if (!user) return;
+    if (!user) {
+      console.warn('Cannot initialize progress: no user');
+      return;
+    }
 
     setIsLoading(true);
     try {
+      console.log(`Initializing progress for user: ${user.id}`);
+      
       // Sync progress from server and local storage
       await progressService.syncProgressOnLogin(user.id);
       
       // Load all completed stops
       await loadProgress();
+      
+      // Load completed count
+      await refreshCompletedCount();
+      
+      console.log('Progress initialization completed');
     } catch (error) {
-      console.error('❌ Error initializing progress:', error);
+      console.error('Error initializing progress:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Load progress from service
+  // Load progress function
   const loadProgress = useCallback(async () => {
     if (!user) return;
 
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      const stops = await progressService.getCompletedStops(user.id);
-      const totalCount = await progressService.getTotalCompletedCount(user.id);
-      
+      const stops = await progressService.getCompletedStops(user.id, isOnline);
+
+      // Count only this user's completions
+      const totalCount = stops.length;
+
       setCompletedStops(stops);
       setTotalVisitedPlaces(totalCount);
 
-      console.log(`📊 Loaded ${stops.length} completed stops, total unique: ${totalCount}`);
+      console.log(`Loaded ${stops.length} completed stops for user ${user.id}`);
     } catch (error) {
-      console.error('❌ Error loading progress:', error);
-      setCompletedStops([]);
-      setTotalVisitedPlaces(0);
+      console.error("Error loading progress:", error);
     } finally {
       setIsLoading(false);
     }
+  }, [user, isOnline]);
+
+  // Refresh completed count
+  const refreshCompletedCount = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const count = await progressService.getTotalCompletedCount(user.id);
+      setCompletedCount(count);
+      console.log('Updated completed count:', count);
+    } catch (error) {
+      console.error('Error refreshing completed count:', error);
+    }
   }, [user]);
 
-  // Mark stop as completed
-  const markStopCompleted = useCallback(async (tourId: string, stopId: string) => {
+  // Check if stop is completed (works offline)
+  const isStopCompleted = useCallback((tourId: string, stopId: string): boolean => {
+    const isCompleted = completedStops.some(stop => 
+      stop.stopId === stopId && 
+      stop.isCompleted &&
+      // Only check tourId if it exists in the data
+      (stop.tourId ? stop.tourId === tourId : true)
+    );
+    
+    console.log(`Checking completion for stop ${stopId} in tour ${tourId}: ${isCompleted}`);
+    return isCompleted;
+  }, [completedStops]);
+
+  // FIXED: Mark stop as completed with correct parameter order
+  const markStopCompleted = useCallback(async (stopId: string, tourId?: string) => {
     if (!user) {
-      console.warn('⚠️ Cannot mark stop completed: user not authenticated');
+      console.warn('Cannot mark stop completed: user not authenticated');
+      return;
+    }
+
+    // FIXED: Check completion with correct parameter order
+    if (isStopCompleted(tourId || '', stopId)) {
+      console.log(`Stop ${stopId} in tour ${tourId} is already completed`);
       return;
     }
 
     try {
-      // Check if already completed to avoid unnecessary operations
-      const alreadyCompleted = await progressService.isStopCompleted(user.id, stopId);
-      if (alreadyCompleted) {
-        console.log(`✅ Stop ${stopId} already completed`);
-        return;
-      }
-
-      // Mark as completed in database/local storage
-      await progressService.markStopCompleted(user.id, stopId, tourId);
-
-      // Update local state
-      const newProgress: StopProgress = {
+      console.log(`ProgressContext: Marking stop ${stopId} as completed for user ${user.id}`);
+      
+      // Call service with correct parameter order (userId, stopId, tourId, isOnline)
+      await progressService.markStopCompleted(user.id, stopId, tourId, isOnline);
+      
+      // Optimistically update local state
+      const newCompletion: StopProgress = {
+        id: `temp-${Date.now()}`, // Temporary ID until synced
+        userId: user.id,
         stopId,
-        tourId,
-        completedAt: new Date().toISOString(),
-        isCompleted: true
+        tourId: tourId || '',
+        isCompleted: true,
+        completedAt: new Date(),
       };
-
-      setCompletedStops(prev => {
-        // Check if already in state (avoid duplicates)
-        const exists = prev.some(stop => 
-          stop.tourId === tourId && stop.stopId === stopId
-        );
-        
-        if (exists) {
-          return prev;
-        }
-        
-        return [...prev, newProgress];
-      });
-
+      
+      setCompletedStops(prev => [...prev, newCompletion]);
       setTotalVisitedPlaces(prev => prev + 1);
-
-      console.log(`🎉 Stop ${stopId} in tour ${tourId} marked as completed`);
+      setCompletedCount(prev => prev + 1);
+      
+      // Refresh from service to ensure consistency
+      setTimeout(async () => {
+        await refreshCompletedCount();
+        await loadProgress();
+      }, 1000);
+      
+      console.log(`ProgressContext: Stop ${stopId} marked as completed successfully`);
+      
     } catch (error) {
-      console.error('❌ Error marking stop completed:', error);
+      console.error('ProgressContext: Error marking stop completed:', error);
+      // Reload progress to ensure consistency
+      await loadProgress();
+      await refreshCompletedCount();
     }
-  }, [user]);
+  }, [user, isStopCompleted, isOnline, loadProgress, refreshCompletedCount]);
 
-  // Check if stop is completed
-  const isStopCompleted = useCallback((tourId: string, stopId: string): boolean => {
-    return completedStops.some(stop => 
-      stop.tourId === tourId && stop.stopId === stopId && stop.isCompleted
-    );
-  }, [completedStops]);
-
-  // Get completed stops for specific tour
+  // Get completed stops for specific tour (works offline)
   const getCompletedStopsForTour = useCallback((tourId: string): StopProgress[] => {
-    return completedStops.filter(stop => stop.tourId === tourId);
+    const tourCompletions = completedStops.filter(stop => 
+      stop.tourId === tourId || (!stop.tourId && tourId) // Handle cases where tourId might be missing
+    );
+    console.log(`Tour ${tourId} has ${tourCompletions.length} completed stops`);
+    return tourCompletions;
   }, [completedStops]);
 
-  // Refresh progress from server
+  // Refresh progress with better error handling
   const refreshProgress = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      console.warn('Cannot refresh progress: no user');
+      return;
+    }
     
     try {
       setIsLoading(true);
+      console.log(`Refreshing progress for user: ${user.id}`);
       
-      // Process any offline queue first
-      await progressService.processOfflineQueue();
+      // Use service refresh method
+      await progressService.refreshProgress(user.id);
       
-      // Reload from server
+      // Reload local state
       await loadProgress();
+      await refreshCompletedCount();
+      
+      console.log('Progress refresh completed');
     } catch (error) {
-      console.error('❌ Error refreshing progress:', error);
+      console.error('Error refreshing progress:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [user, loadProgress]);
+  }, [user, loadProgress, refreshCompletedCount]);
 
-  // Clear all progress
+  // Clear all progress for current user
   const clearAllProgress = useCallback(async () => {
+    if (!user) {
+      console.warn('Cannot clear progress: no user');
+      return;
+    }
+
     try {
-      await progressService.clearAllProgress();
+      console.log(`Clearing all progress for user: ${user.id}`);
+      
+      await progressService.clearAllProgress(user.id);
       
       setCompletedStops([]);
       setTotalVisitedPlaces(0);
+      setCompletedCount(0);
       
-      console.log('✅ All progress cleared');
+      console.log('All progress cleared successfully');
     } catch (error) {
-      console.error('❌ Error clearing progress:', error);
+      console.error('Error clearing progress:', error);
     }
-  }, []);
+  }, [user]);
 
   // Sync progress (for manual sync button)
   const syncProgress = useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      console.warn('Cannot sync progress: no user');
+      return;
+    }
+    
+    if (!isOnline) {
+      console.log('Cannot sync progress: offline');
+      return;
+    }
     
     try {
       setIsLoading(true);
+      console.log(`Syncing progress for user: ${user.id}`);
+      
       await progressService.syncProgressOnLogin(user.id);
       await loadProgress();
-      console.log('✅ Progress synced successfully');
+      await refreshCompletedCount();
+      
+      console.log('Progress synced successfully');
     } catch (error) {
-      console.error('❌ Error syncing progress:', error);
+      console.error('Error syncing progress:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [user, loadProgress]);
+  }, [user, loadProgress, refreshCompletedCount, isOnline]);
 
-  // ADDED: Debug function to test database connectivity
-  const testDatabaseConnection = useCallback(async () => {
+  // Get total completed count wrapper
+  const getTotalCompletedCount = useCallback(async (userId: string) => {
     if (!user) {
-      console.log('⚠️ No user logged in for database test');
-      return false;
+      console.warn("Cannot get total count: no user");
+      return 0;
     }
-
     try {
-      // Test table structure
-      const tableExists = await progressService.verifyDatabaseTable();
-      if (!tableExists) {
-        console.error('❌ Database table verification failed');
-        return false;
-      }
-
-      // Test insertion
-      await progressService.testDatabaseInsertion(user.id);
-      console.log('✅ Database connection test successful');
-      return true;
-    } catch (error) {
-      console.error('❌ Database connection test failed:', error);
-      return false;
+      const count = await progressService.getTotalCompletedCount(userId);
+      setCompletedCount(count);
+      return count;
+    } catch (err) {
+      console.error("Error refreshing completed count:", err);
+      return 0;
     }
   }, [user]);
-
-  // ADDED: Force reset all progress (for testing)
-  const forceResetAllProgress = useCallback(async () => {
-    try {
-      await progressService.forceResetAllProgress();
-      
-      // Reset local state
-      setCompletedStops([]);
-      setTotalVisitedPlaces(0);
-      
-      console.log('🎉 All progress reset completed');
-    } catch (error) {
-      console.error('❌ Error resetting progress:', error);
-    }
-  }, []);
-
-  // ADDED: Debug function
-  const debugShowStoredData = useCallback(async () => {
-    await progressService.debugShowAllStoredData();
-  }, []);
 
   const value: ProgressContextType = {
     completedStops,
     totalVisitedPlaces,
     isLoading,
+    completedCount,
     markStopCompleted,
     isStopCompleted,
     getCompletedStopsForTour,
+    getTotalCompletedCount,
     refreshProgress,
     clearAllProgress,
     syncProgress,
-    testDatabaseConnection,
-    forceResetAllProgress, // Add this
-    debugShowStoredData, // Add this
   };
 
   return (

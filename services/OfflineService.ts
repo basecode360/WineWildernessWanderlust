@@ -12,6 +12,10 @@ export interface OfflineContent {
   audioFiles: Record<string, string>; // stopId -> localPath
 }
 
+// Enhanced OfflineContent interface with user association
+export interface OfflineContentWithUser extends OfflineContent {
+  userId: string;
+}
 // Create a singleton instance using a different pattern
 let offlineServiceInstance: OfflineService | null = null;
 
@@ -138,6 +142,78 @@ export class OfflineService {
     this.downloadCancellationTokens.set(tourId, true);
     console.log(`❌ Download cancellation requested for ${tourId}`);
   }
+  async getOfflineContentForUser(userId: string, tourId: string): Promise<OfflineContent | null> {
+  try {
+    const key = this.getOfflineStorageKey(userId, tourId, 'content');
+    const stored = await AsyncStorage.getItem(key);
+    if (stored) {
+      const content = JSON.parse(stored) as OfflineContent;
+
+      // quick file existence check (shared global dir)
+      const tourDir = this.getTourDirectory(content.tourId);
+      const dirInfo = await FileSystem.getInfoAsync(tourDir);
+      if (!dirInfo.exists) {
+        console.warn(`👤⚠️ User content points to missing dir, cleaning keys: user=${userId}, tour=${tourId}`);
+        await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'content'));
+        await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'offline'));
+        await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'date'));
+        return null;
+      }
+      return content;
+    }
+    return null;
+  } catch (e) {
+    console.error(`👤❌ getOfflineContentForUser error for user=${userId}, tour=${tourId}:`, e);
+    return null;
+  }
+}
+
+// Download tour for a specific user (wraps the global method, then mirrors metadata under user-scoped keys)
+async downloadTourWithAssetsForUser(
+  tour: Tour,
+  userId: string,
+  onProgress?: (current: number, total: number, currentFile: string) => void
+): Promise<boolean> {
+  console.log(`👤🔄 downloadTourWithAssetsForUser: user=${userId}, tour=${tour.id}`);
+  const ok = await this.downloadTourWithAssets(tour, onProgress);
+  if (!ok) {
+    console.warn(`👤❌ downloadTourWithAssetsForUser failed for user=${userId}, tour=${tour.id}`);
+    return false;
+  }
+
+  try {
+    const globalContentKey = `tour_${tour.id}_offline_content`;
+    const globalOfflineKey = `tour_${tour.id}_offline`;
+    const globalDateKey    = `tour_${tour.id}_download_date`;
+
+    const [content, offline, date] = await Promise.all([
+      AsyncStorage.getItem(globalContentKey),
+      AsyncStorage.getItem(globalOfflineKey),
+      AsyncStorage.getItem(globalDateKey),
+    ]);
+
+    if (content) {
+      await AsyncStorage.setItem(this.getOfflineStorageKey(userId, tour.id, 'content'), content);
+    }
+    if (offline) {
+      await AsyncStorage.setItem(this.getOfflineStorageKey(userId, tour.id, 'offline'), offline);
+    } else {
+      await AsyncStorage.setItem(this.getOfflineStorageKey(userId, tour.id, 'offline'), 'true');
+    }
+    if (date) {
+      await AsyncStorage.setItem(this.getOfflineStorageKey(userId, tour.id, 'date'), date);
+    } else {
+      await AsyncStorage.setItem(this.getOfflineStorageKey(userId, tour.id, 'date'), new Date().toISOString());
+    }
+
+    console.log(`👤✅ Mirrored metadata under user scope for user=${userId}, tour=${tour.id}`);
+    return true;
+  } catch (e) {
+    console.error('👤❌ Error mirroring user-scoped metadata:', e);
+    return false;
+  }
+}
+
 
   // Download tour with all assets
   async downloadTourWithAssets(
@@ -360,6 +436,57 @@ export class OfflineService {
       return null;
     }
   }
+// Get all offline tours for a specific user
+async getAllOfflineToursForUser(userId: string): Promise<OfflineContent[]> {
+  try {
+    console.log(`📱 Getting offline tours for user: ${userId}`);
+    
+    const keys = await AsyncStorage.getAllKeys();
+    const userOfflineKeys = keys.filter(key => 
+      key.startsWith(`user_${userId}_tour_`) && key.endsWith('_offline_content')
+    );
+    
+    const userOfflineTours: OfflineContent[] = [];
+    
+    for (const key of userOfflineKeys) {
+      const stored = await AsyncStorage.getItem(key);
+      if (stored) {
+        try {
+          const content = JSON.parse(stored) as OfflineContent;
+          
+          // Quick verification - check if at least the tour directory exists
+          const tourDir = this.getTourDirectory(content.tourId);
+          const dirInfo = await FileSystem.getInfoAsync(tourDir);
+          
+          if (dirInfo.exists) {
+            userOfflineTours.push(content);
+          } else {
+            // Clean up orphaned metadata
+            console.warn(`🗑️ Cleaning up orphaned metadata for user ${userId}, tour ${content.tourId}`);
+            await AsyncStorage.removeItem(key);
+            const tourId = content.tourId;
+            await AsyncStorage.removeItem(`user_${userId}_tour_${tourId}_offline`);
+            await AsyncStorage.removeItem(`user_${userId}_tour_${tourId}_download_date`);
+          }
+        } catch (parseError) {
+          console.warn(`⚠️ Could not parse offline content for key ${key}:`, parseError);
+          await AsyncStorage.removeItem(key);
+        }
+      }
+    }
+    
+    console.log(`📊 Found ${userOfflineTours.length} offline tours for user ${userId}`);
+    return userOfflineTours;
+  } catch (error) {
+    console.error(`❌ Error getting offline tours for user ${userId}:`, error);
+    return [];
+  }
+}
+// Modified storage methods to include userId
+private getOfflineStorageKey(userId: string, tourId: string, type: 'offline' | 'content' | 'date'): string {
+  const suffix = type === 'offline' ? '_offline' : type === 'content' ? '_offline_content' : '_download_date';
+  return `user_${userId}_tour_${tourId}${suffix}`;
+}
 
   // Get all offline tours
   async getAllOfflineTours(): Promise<OfflineContent[]> {
@@ -404,41 +531,83 @@ export class OfflineService {
     }
   }
 
-  // Get offline audio path
-  async getOfflineAudioPath(tourId: string, stopId: string): Promise<string | null> {
-    try {
-      const offlineContent = await this.getOfflineContent(tourId);
-      if (offlineContent && offlineContent.audioFiles[stopId]) {
-        const filePath = offlineContent.audioFiles[stopId];
-        const fileInfo = await FileSystem.getInfoAsync(filePath);
-        if (fileInfo.exists) {
-          return filePath;
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error(`❌ Error getting offline audio path for ${tourId}/${stopId}:`, error);
-      return null;
+// Get offline audio path (optionally user-scoped)
+async getOfflineAudioPath(tourId: string, stopId: string, userId?: string): Promise<string | null> {
+  try {
+    let offlineContent: OfflineContent | null = null;
+    if (userId) {
+      offlineContent = await this.getOfflineContentForUser(userId, tourId);
     }
+    if (!offlineContent) {
+      offlineContent = await this.getOfflineContent(tourId); // fallback to global
+    }
+    if (offlineContent && offlineContent.audioFiles[stopId]) {
+      const filePath = offlineContent.audioFiles[stopId];
+      const fileInfo = await FileSystem.getInfoAsync(filePath);
+      if (fileInfo.exists) return filePath;
+    }
+    return null;
+  } catch (error) {
+    console.error(`❌ Error getting offline audio path for ${tourId}/${stopId}:`, error);
+    return null;
   }
+}
+// Get storage stats for a specific user
+async getStorageStatsForUser(userId: string): Promise<{ totalSize: number; tourCount: number }> {
+  try {
+    const offlineTours = await this.getAllOfflineToursForUser(userId);
+    const totalSize = offlineTours.reduce((sum, tour) => sum + tour.size, 0);
 
-  // Get offline image path
-  async getOfflineImagePath(tourId: string, imageKey: string): Promise<string | null> {
-    try {
-      const offlineContent = await this.getOfflineContent(tourId);
-      if (offlineContent && offlineContent.imageFiles[imageKey]) {
-        const filePath = offlineContent.imageFiles[imageKey];
-        const fileInfo = await FileSystem.getInfoAsync(filePath);
-        if (fileInfo.exists) {
-          return filePath;
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error(`❌ Error getting offline image path for ${tourId}/${imageKey}:`, error);
-      return null;
-    }
+    return {
+      totalSize,
+      tourCount: offlineTours.length
+    };
+  } catch (error) {
+    console.error(`❌ Error getting storage stats for user ${userId}:`, error);
+    return { totalSize: 0, tourCount: 0 };
   }
+}
+// Remove tour for a specific user (cleans both user metadata + global files)
+async removeTourForUser(userId: string, tourId: string): Promise<void> {
+  try {
+    console.log(`👤🗑️ Removing offline tour for user=${userId}, tour=${tourId}`);
+
+    // Remove user-specific metadata
+    await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'content'));
+    await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'offline'));
+    await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'date'));
+
+    // Also remove global files + global metadata
+    await this.removeTour(tourId);
+
+    console.log(`👤✅ Tour ${tourId} removed for user ${userId}`);
+  } catch (error) {
+    console.error(`👤❌ Error removing tour for user=${userId}, tour=${tourId}:`, error);
+    throw error;
+  }
+}
+  
+// Get offline image path (optionally user-scoped)
+async getOfflineImagePath(tourId: string, imageKey: string, userId?: string): Promise<string | null> {
+  try {
+    let offlineContent: OfflineContent | null = null;
+    if (userId) {
+      offlineContent = await this.getOfflineContentForUser(userId, tourId);
+    }
+    if (!offlineContent) {
+      offlineContent = await this.getOfflineContent(tourId); // fallback
+    }
+    if (offlineContent && offlineContent.imageFiles[imageKey]) {
+      const filePath = offlineContent.imageFiles[imageKey];
+      const fileInfo = await FileSystem.getInfoAsync(filePath);
+      if (fileInfo.exists) return filePath;
+    }
+    return null;
+  } catch (error) {
+    console.error(`❌ Error getting offline image path for ${tourId}/${imageKey}:`, error);
+    return null;
+  }
+}
 
   // Remove tour
   async removeTour(tourId: string): Promise<void> {

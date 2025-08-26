@@ -1,5 +1,6 @@
-// services/ProgressService.ts - Handle user stop completion tracking (FIXED)
+// services/ProgressService.ts - Fixed Data Insertion Issue
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../lib/supabase';
 
 export interface UserStopCompletion {
@@ -10,15 +11,25 @@ export interface UserStopCompletion {
 }
 
 export interface StopProgress {
+  id?: string;
+  userId: string;
   stopId: string;
-  tourId: string;
-  completedAt: string;
+  tourId?: string;
+  completedAt: Date | string;
   isCompleted: boolean;
+}
+
+// Cache for stop-to-tour mapping to avoid repeated queries
+interface StopTourMapping {
+  [stopId: string]: string; // stopId -> tourId
 }
 
 class ProgressService {
   private static instance: ProgressService;
-  private offlineQueue: UserStopCompletion[] = [];
+  private localProgressCache: Map<string, StopProgress[]> = new Map();
+  private stopTourMappingCache: StopTourMapping = {};
+  private mappingCacheExpiry: number = 0;
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
   static getInstance(): ProgressService {
     if (!ProgressService.instance) {
@@ -27,234 +38,149 @@ class ProgressService {
     return ProgressService.instance;
   }
 
-  // Check network connectivity
+  // Generate consistent local storage key
+  private getLocalStorageKey(userId: string, type: 'progress' | 'queue' = 'progress'): string {
+    return `user_${userId}_${type}`;
+  }
+
+  // Check if device is online
   private async isOnline(): Promise<boolean> {
     try {
-      const response = await fetch('https://www.google.com/generate_204', {
-        method: 'HEAD',
-        cache: 'no-cache',
-        signal: AbortSignal.timeout(5000)
-      });
-      return response.ok;
-    } catch {
+      const state = await NetInfo.fetch();
+      return state.isConnected ?? false;
+    } catch (error) {
+      console.warn('Could not check network status:', error);
       return false;
     }
   }
 
-  // Verify database table exists and has correct structure
-  async verifyDatabaseTable(): Promise<boolean> {
+  // Get stop-to-tour mapping with caching
+  private async getStopTourMappings(): Promise<StopTourMapping> {
+    const now = Date.now();
+    
+    // Return cached mapping if still valid
+    if (this.mappingCacheExpiry > now && Object.keys(this.stopTourMappingCache).length > 0) {
+      return this.stopTourMappingCache;
+    }
+
     try {
-      console.log('🔍 Verifying user_stop_completion table structure...');
+      console.log('Refreshing stop-to-tour mapping cache...');
       
-      const { data, error } = await supabase
-        .from('user_stop_completion')
-        .select('*')
-        .limit(1);
+      const { data: stops, error } = await supabase
+        .from('stops')
+        .select('id, tour_id');
 
       if (error) {
-        console.error('❌ Table verification failed:', error);
-        console.error('❌ Please ensure the table exists with this structure:');
-        console.error(`
-CREATE TABLE user_stop_completion (
-  id BIGSERIAL PRIMARY KEY,
-  user_id UUID NOT NULL REFERENCES auth.users(id),
-  stop_id TEXT NOT NULL,
-  completed_at TIMESTAMP DEFAULT now()
-);
-        `);
-        return false;
+        console.error('Error fetching stop mappings:', error);
+        return this.stopTourMappingCache; // Return old cache if available
       }
 
-      console.log('✅ Table verification successful');
-      return true;
+      // Build mapping object
+      const newMapping: StopTourMapping = {};
+      if (stops) {
+        stops.forEach(stop => {
+          newMapping[stop.id] = stop.tour_id;
+        });
+      }
+
+      this.stopTourMappingCache = newMapping;
+      this.mappingCacheExpiry = now + this.CACHE_DURATION;
+      
+      console.log(`Cached ${Object.keys(newMapping).length} stop-to-tour mappings`);
+      return newMapping;
+      
     } catch (error) {
-      console.error('❌ Database connection error during verification:', error);
-      return false;
+      console.error('Error building stop mappings:', error);
+      return this.stopTourMappingCache;
     }
   }
 
-  // ADDED: Debug RLS and user authentication
-  private async debugRLSAndAuth(): Promise<void> {
-    try {
-      console.log('🔍 Debugging RLS and authentication...');
-      
-      // Check current user from Supabase auth
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError) {
-        console.error('❌ Auth error:', authError);
-        return;
-      }
-      
-      if (!user) {
-        console.error('❌ No authenticated user found!');
-        return;
-      }
-      
-      console.log('✅ Current authenticated user:', {
-        id: user.id,
-        email: user.email,
-        aud: user.aud,
-        role: user.role
-      });
-      
-      // Test if we can query the table with RLS
-      const { data: testQuery, error: queryError } = await supabase
-        .from('user_stop_completion')
-        .select('*')
-        .eq('user_id', user.id)
-        .limit(1);
-        
-      if (queryError) {
-        console.error('❌ RLS Query error:', queryError);
-      } else {
-        console.log('✅ RLS Query successful, existing records:', testQuery);
-      }
-      
-      // Test RLS policy by checking if we can read from the table
-      const { data: rlsTest, error: rlsError } = await supabase
-        .from('user_stop_completion')
-        .select('count(*)')
-        .single();
-        
-      console.log('📊 RLS read test result:', { data: rlsTest, error: rlsError });
-      
-    } catch (error) {
-      console.error('❌ Debug RLS error:', error);
-    }
+  // Get tour ID for a specific stop
+  private async getTourIdForStop(stopId: string): Promise<string | null> {
+    const mappings = await this.getStopTourMappings();
+    return mappings[stopId] || null;
   }
 
-  // SIMPLIFIED: Test database insertion with RLS debugging
-  async testDatabaseInsertion(userId: string): Promise<void> {
-    try {
-      // First debug RLS and auth
-      await this.debugRLSAndAuth();
-      
-      // Check what stops exist in the database
-      console.log('🔍 Checking available stops in database...');
-      const { data: stops, error: stopsError } = await supabase
-        .from('stops')
-        .select('id, title, tour_id')
-        .limit(5);
-
-      if (stopsError) {
-        console.error('❌ Error fetching stops:', stopsError);
-        throw new Error(`Cannot fetch stops: ${stopsError.message}`);
-      }
-
-      console.log('📋 Available stops:', stops);
-
-      if (!stops || stops.length === 0) {
-        console.error('❌ No stops found in database');
-        throw new Error('No stops found in database for testing');
-      }
-
-      const realStopId = stops[0].id;
-      console.log(`✅ Using stop ID: ${realStopId} (${stops[0].title})`);
-
-      // Get the current authenticated user
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        console.error('❌ Authentication issue:', authError);
-        throw new Error('User not authenticated');
-      }
-      
-      console.log('👤 Using authenticated user ID:', user.id);
-      console.log('👤 Provided user ID:', userId);
-      console.log('🔍 User IDs match:', user.id === userId);
-
-      const testCompletion = {
-        user_id: user.id, // Use the authenticated user ID instead of provided userId
-        stop_id: realStopId,
-        completed_at: new Date().toISOString()
-      };
-
-      console.log('🧪 Testing database insertion:', testCompletion);
-
-      await this.saveToDatabase(testCompletion);
-      console.log('✅ Database insertion test successful - This means audio completion tracking will work!');
-
-      // Clean up test record
-      const { error: deleteError } = await supabase
-        .from('user_stop_completion')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('stop_id', realStopId);
-
-      if (deleteError) {
-        console.warn('⚠️ Could not clean up test record:', deleteError);
-      } else {
-        console.log('🧹 Test record cleaned up successfully');
-      }
-    } catch (error) {
-      console.error('❌ Database insertion test failed:', error);
-      throw error;
-    }
-  }
-
-  // FIXED: Mark stop as completed using authenticated user ID
-  async markStopCompleted(userId: string, stopId: string, tourId: string): Promise<void> {
+  // FIXED: Mark stop as completed - MAIN METHOD
+  async markStopCompleted(userId: string, stopId: string, tourId?: string, isOnline?: boolean): Promise<void> {
     const completedAt = new Date().toISOString();
-    console.log(`🎯 markStopCompleted called: userId=${userId}, stopId=${stopId}, tourId=${tourId}`);
+    console.log(`=== MARK STOP COMPLETED ===`);
+    console.log(`userId: ${userId}`);
+    console.log(`stopId: ${stopId}`);
+    console.log(`tourId: ${tourId}`);
+
+    // Use provided isOnline or check network status
+    const networkOnline = isOnline !== undefined ? isOnline : await this.isOnline();
+    console.log(`Network status: ${networkOnline ? 'online' : 'offline'}`);
 
     try {
-      // Get the authenticated user to ensure we use the correct user ID for RLS
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        console.error('❌ Authentication error in markStopCompleted:', authError);
-        throw new Error('User not authenticated');
-      }
-      
-      // Use the authenticated user ID for database operations
-      const authenticatedUserId = user.id;
-      console.log('👤 Using authenticated user ID:', authenticatedUserId);
-      console.log('🔍 Provided vs Authenticated user ID match:', userId === authenticatedUserId);
-
       const completion: UserStopCompletion = {
-        user_id: authenticatedUserId, // Use authenticated user ID
+        user_id: userId,
         stop_id: stopId,
         completed_at: completedAt
       };
 
-      console.log(`📝 Creating completion record:`, completion);
-
-      const online = await this.isOnline();
-      console.log(`🌐 Network status: ${online ? 'online' : 'offline'}`);
-
-      if (online) {
-        console.log(`🌐 Attempting to save to database...`);
-        
+      // ALWAYS save to database first when online
+      if (networkOnline) {
         try {
-          await this.saveToDatabase(completion);
-          console.log(`✅ Database save successful for stop ${stopId}`);
+          // Check if already exists in database
+          const { data: existing } = await supabase
+            .from('user_stop_completion')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('stop_id', stopId)
+            .limit(1);
+
+          if (existing && existing.length > 0) {
+            console.log(`Stop ${stopId} already completed in database`);
+          } else {
+            // Insert into database
+            console.log('Inserting into database:', completion);
+            const { data, error } = await supabase
+              .from('user_stop_completion')
+              .insert([{
+                user_id: completion.user_id,
+                stop_id: completion.stop_id,
+                completed_at: completion.completed_at
+              }])
+              .select();
+
+            if (error) {
+              console.error('Database insert error:', error);
+              console.error('Error details:', error.details, error.hint, error.code);
+              throw error;
+            }
+
+            console.log('✅ Database insert successful:', data);
+          }
         } catch (dbError) {
-          console.error(`❌ Database save failed for stop ${stopId}:`, dbError);
-          // Continue to save locally even if database fails
+          console.error(`❌ Database operation failed for stop ${stopId}:`, dbError);
+          // Continue with local storage but also queue for later sync
+          await this.queueForOfflineSync(completion);
         }
-        
-        // Also save locally for offline access with user-specific key
-        await this.saveToLocalStorage(stopId, tourId, completedAt, authenticatedUserId);
-        console.log(`💾 Local storage save completed for stop ${stopId}`);
-        
-        // Process any queued offline completions
-        await this.processOfflineQueue();
-        console.log(`🔄 Processed offline queue`);
       } else {
-        console.log(`📱 Saving offline: stop ${stopId}`);
-        // Save to local storage and queue for later sync
-        await this.saveToLocalStorage(stopId, tourId, completedAt, authenticatedUserId);
+        // Offline: queue for later sync
+        console.log(`📱 Offline: queuing stop ${stopId} for sync`);
         await this.queueForOfflineSync(completion);
-        
-        console.log(`📱 Stop ${stopId} queued for offline sync`);
       }
 
-      console.log(`🎉 Stop ${stopId} marked as completed successfully`);
-    } catch (error) {
-      console.error('❌ Error in markStopCompleted:', error);
+      // ALWAYS save locally (for offline access and consistency)
+      await this.saveToLocalStorage(stopId, tourId, completedAt, userId);
       
-      // Fallback to local storage if everything fails
+      // Process any existing offline queue when online
+      if (networkOnline) {
+        await this.processOfflineQueue(userId);
+      }
+
+      // Update cache
+      this.invalidateCache(userId);
+
+      console.log(`✅ Stop ${stopId} marked as completed successfully`);
+      console.log(`=== END MARK STOP COMPLETED ===`);
+    } catch (error) {
+      console.error('❌ Critical error in markStopCompleted:', error);
+      
+      // Ultimate fallback: save locally and queue for sync
       try {
         await this.saveToLocalStorage(stopId, tourId, completedAt, userId);
         await this.queueForOfflineSync({
@@ -262,55 +188,95 @@ CREATE TABLE user_stop_completion (
           stop_id: stopId,
           completed_at: completedAt
         });
-        console.log(`📱 Fallback save completed for stop ${stopId}`);
+        console.log(`💾 Fallback save completed for stop ${stopId}`);
       } catch (fallbackError) {
-        console.error('❌ Even fallback save failed:', fallbackError);
+        console.error('💥 Even fallback save failed:', fallbackError);
+        throw fallbackError;
       }
     }
   }
 
-  // Save completion to Supabase database
-  private async saveToDatabase(completion: UserStopCompletion): Promise<void> {
-    console.log('💾 Attempting to save to database:', completion);
-    
-    const { data, error } = await supabase
-      .from('user_stop_completion')
-      .insert([{
-        user_id: completion.user_id,
-        stop_id: completion.stop_id,
-        completed_at: completion.completed_at
-      }])
-      .select(); // Add select to get returned data for verification
-
-    if (error) {
-      console.error('❌ Database save error:', error);
-      throw new Error(`Database save failed: ${error.message}`);
+  // Save to local storage
+  private async saveToLocalStorage(stopId: string, tourId?: string, completedAt?: string, userId?: string): Promise<void> {
+    if (!userId) {
+      console.error('Cannot save to local storage: no userId provided');
+      return;
     }
 
-    console.log(`✅ Stop completion saved to database successfully:`, data);
+    try {
+      // Get tourId from mapping if not provided
+      const finalTourId = tourId || await this.getTourIdForStop(stopId);
+
+      const progress: StopProgress = {
+        userId,
+        stopId,
+        tourId: finalTourId || undefined,
+        completedAt: completedAt || new Date().toISOString(),
+        isCompleted: true
+      };
+
+      // Get existing progress for user
+      const existingProgress = await this.getLocalProgressForUser(userId);
+      
+      // Check if already exists
+      const alreadyExists = existingProgress.some(p => 
+        p.stopId === stopId
+      );
+
+      if (!alreadyExists) {
+        existingProgress.push(progress);
+        
+        const key = this.getLocalStorageKey(userId, 'progress');
+        await AsyncStorage.setItem(key, JSON.stringify(existingProgress));
+        
+        // Update cache
+        this.localProgressCache.set(userId, existingProgress);
+        
+        console.log(`Saved to local storage: stop ${stopId} for user ${userId}`);
+      } else {
+        console.log(`Stop ${stopId} already exists in local storage for user ${userId}`);
+      }
+    } catch (error) {
+      console.error('Error saving to local storage:', error);
+      throw error;
+    }
   }
 
-  // FIXED: Save to local storage with user-specific keys
-  private async saveToLocalStorage(stopId: string, tourId: string, completedAt: string, userId?: string): Promise<void> {
-    const progress: StopProgress = {
-      stopId,
-      tourId,
-      completedAt,
-      isCompleted: true
-    };
+  // Get local progress for specific user
+  private async getLocalProgressForUser(userId: string): Promise<StopProgress[]> {
+    try {
+      // Check cache first
+      if (this.localProgressCache.has(userId)) {
+        return this.localProgressCache.get(userId) || [];
+      }
 
-    // Make key user-specific to avoid cross-user contamination
-    const userPrefix = userId ? `user_${userId}_` : '';
-    const key = `${userPrefix}progress_${tourId}_${stopId}_completed`;
-    await AsyncStorage.setItem(key, JSON.stringify(progress));
-    console.log(`💾 Saved to local storage with key: ${key}`);
+      const key = this.getLocalStorageKey(userId, 'progress');
+      const data = await AsyncStorage.getItem(key);
+      
+      if (data) {
+        const progress = JSON.parse(data);
+        this.localProgressCache.set(userId, progress);
+        return progress;
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error getting local progress:', error);
+      return [];
+    }
+  }
+
+  // Invalidate cache for user
+  private invalidateCache(userId: string): void {
+    this.localProgressCache.delete(userId);
   }
 
   // Queue completion for offline sync
   private async queueForOfflineSync(completion: UserStopCompletion): Promise<void> {
     try {
-      const queue = await AsyncStorage.getItem('offline_completion_queue');
-      const existingQueue: UserStopCompletion[] = queue ? JSON.parse(queue) : [];
+      const queueKey = this.getLocalStorageKey(completion.user_id, 'queue');
+      const existingQueueData = await AsyncStorage.getItem(queueKey);
+      const existingQueue: UserStopCompletion[] = existingQueueData ? JSON.parse(existingQueueData) : [];
       
       // Check if already in queue
       const alreadyQueued = existingQueue.some(item => 
@@ -319,71 +285,83 @@ CREATE TABLE user_stop_completion (
 
       if (!alreadyQueued) {
         existingQueue.push(completion);
-        await AsyncStorage.setItem('offline_completion_queue', JSON.stringify(existingQueue));
+        await AsyncStorage.setItem(queueKey, JSON.stringify(existingQueue));
+        console.log(`Queued completion for sync: ${completion.stop_id}`);
       }
     } catch (error) {
-      console.error('❌ Error queuing offline completion:', error);
+      console.error('Error queuing offline completion:', error);
     }
   }
 
   // Process offline queue when coming back online
-  async processOfflineQueue(): Promise<void> {
+  async processOfflineQueue(userId: string): Promise<void> {
     try {
-      const queueData = await AsyncStorage.getItem('offline_completion_queue');
+      const queueKey = this.getLocalStorageKey(userId, 'queue');
+      const queueData = await AsyncStorage.getItem(queueKey);
+      
       if (!queueData) return;
 
       const queue: UserStopCompletion[] = JSON.parse(queueData);
       if (queue.length === 0) return;
 
-      console.log(`🔄 Processing ${queue.length} offline completions`);
+      console.log(`Processing ${queue.length} offline completions for user ${userId}`);
 
       const successfulSyncs: number[] = [];
 
       for (let i = 0; i < queue.length; i++) {
         try {
-          await this.saveToDatabase(queue[i]);
+          // Check if already exists in database before inserting
+          const { data: existing } = await supabase
+            .from('user_stop_completion')
+            .select('id')
+            .eq('user_id', queue[i].user_id)
+            .eq('stop_id', queue[i].stop_id)
+            .limit(1);
+
+          if (!existing || existing.length === 0) {
+            const { error } = await supabase
+              .from('user_stop_completion')
+              .insert([{
+                user_id: queue[i].user_id,
+                stop_id: queue[i].stop_id,
+                completed_at: queue[i].completed_at
+              }]);
+
+            if (!error) {
+              console.log(`Synced completion: ${queue[i].stop_id}`);
+            }
+          } else {
+            console.log(`Completion already exists in database: ${queue[i].stop_id}`);
+          }
+          
           successfulSyncs.push(i);
         } catch (error) {
-          console.warn(`⚠️ Failed to sync completion ${i}:`, error);
+          console.warn(`Failed to sync completion ${i}:`, error);
         }
       }
 
       // Remove successfully synced items from queue
       if (successfulSyncs.length > 0) {
         const remainingQueue = queue.filter((_, index) => !successfulSyncs.includes(index));
-        await AsyncStorage.setItem('offline_completion_queue', JSON.stringify(remainingQueue));
+        await AsyncStorage.setItem(queueKey, JSON.stringify(remainingQueue));
         
-        console.log(`✅ Successfully synced ${successfulSyncs.length} completions`);
+        console.log(`Successfully synced ${successfulSyncs.length} completions for user ${userId}`);
       }
     } catch (error) {
-      console.error('❌ Error processing offline queue:', error);
+      console.error(`Error processing offline queue for user ${userId}:`, error);
     }
   }
 
-  // FIXED: Check completion with user-specific keys
-  async isStopCompleted(userId: string, stopId: string): Promise<boolean> {
+  // Check completion with proper offline support
+  async isStopCompleted(userId: string, stopId: string, isOnline?: boolean): Promise<boolean> {
     try {
-      console.log(`🔍 Checking completion status for user ${userId}, stop ${stopId}`);
+      console.log(`Checking completion status for user ${userId}, stop ${stopId}`);
       
-      // Check user-specific local storage first
-      const userSpecificKey = `user_${userId}_progress_*_${stopId}_completed`;
-      const keys = await AsyncStorage.getAllKeys();
-      const hasUserSpecificLocal = keys.some(key => 
-        key.startsWith(`user_${userId}_`) && 
-        key.includes(stopId) && 
-        key.endsWith('_completed')
-      );
-      
-      if (hasUserSpecificLocal) {
-        console.log(`📱 Found user-specific local completion for stop ${stopId}`);
-        return true;
-      }
-
-      // Then check database if online
-      const online = await this.isOnline();
-      if (online) {
-        console.log(`🌐 Checking database for completion: user ${userId}, stop ${stopId}`);
-        
+      // Use provided isOnline or check network status
+      const networkOnline = isOnline !== undefined ? isOnline : await this.isOnline();
+            
+      if (networkOnline) {
+        // Check database first when online
         const { data, error } = await supabase
           .from('user_stop_completion')
           .select('id')
@@ -391,183 +369,246 @@ CREATE TABLE user_stop_completion (
           .eq('stop_id', stopId)
           .limit(1);
 
-        if (error) {
-          console.warn('⚠️ Database check failed, using local data:', error);
-          return hasUserSpecificLocal;
+        if (!error && data && data.length > 0) {
+          console.log(`Database: stop ${stopId} is completed`);
+          return true;
         }
-
-        const isCompleted = data && data.length > 0;
-        console.log(`📊 Database completion status for stop ${stopId}: ${isCompleted}`);
-        return isCompleted;
       }
 
-      console.log(`📱 Using local completion status for stop ${stopId}: ${hasUserSpecificLocal}`);
-      return hasUserSpecificLocal;
-    } catch (error) {
-      console.error('❌ Error checking stop completion:', error);
-      return false;
-    }
-  }
-
-  // Get all completed stops for user
-  async getCompletedStops(userId: string): Promise<StopProgress[]> {
-    try {
-      const online = await this.isOnline();
+      // Check local storage (both online and offline)
+      const localProgress = await this.getLocalProgressForUser(userId);
+      const isCompletedLocally = localProgress.some(p => p.stopId === stopId);
       
-      if (online) {
-        // Get from database with tour info
-        const { data, error } = await supabase
-          .from('user_stop_completion')
-          .select(`
-            stop_id,
-            completed_at,
-            stops!inner(tour_id)
-          `)
-          .eq('user_id', userId);
-
-        if (error) {
-          console.warn('⚠️ Database fetch failed, using local data:', error);
-          return await this.getLocalCompletedStops(userId);
-        }
-
-        if (data) {
-          return data.map(item => ({
-            stopId: item.stop_id,
-            tourId: item.stops.tour_id,
-            completedAt: item.completed_at,
-            isCompleted: true
-          }));
-        }
-      }
-
-      // Fallback to local storage
-      return await this.getLocalCompletedStops(userId);
+      console.log(`Local storage: stop ${stopId} completion status: ${isCompletedLocally}`);
+      return isCompletedLocally;
+      
     } catch (error) {
-      console.error('❌ Error getting completed stops:', error);
-      return await this.getLocalCompletedStops(userId);
+      console.error('Error checking stop completion:', error);
+      
+      // Fallback to local storage only
+      try {
+        const localProgress = await this.getLocalProgressForUser(userId);
+        return localProgress.some(p => p.stopId === stopId);
+      } catch (localError) {
+        console.error('Error checking local completion:', localError);
+        return false;
+      }
     }
   }
 
-  // FIXED: Get user-specific completed stops from local storage
-  private async getLocalCompletedStops(userId?: string): Promise<StopProgress[]> {
+  // Get all completed stops - optimized with batch mapping
+  async getCompletedStops(userId: string, isOnline?: boolean): Promise<StopProgress[]> {
     try {
-      const keys = await AsyncStorage.getAllKeys();
-      const progressKeys = keys.filter(key => {
-        if (userId) {
-          // Look for user-specific keys first
-          return key.startsWith(`user_${userId}_progress_`) && key.endsWith('_completed');
-        } else {
-          // Fallback to generic keys (for backward compatibility)
-          return key.startsWith('progress_') && key.endsWith('_completed');
-        }
-      });
+      console.log(`Getting completed stops for user: ${userId}`);
+      
+      // Use provided isOnline or check network status
+      const networkOnline = isOnline !== undefined ? isOnline : await this.isOnline();
+      
+      console.log(`Network: ${networkOnline ? 'ONLINE' : 'OFFLINE'}`);
+      
+      if (networkOnline) {
+        try {
+          // Get user completions
+          const { data: userCompletions, error: userError } = await supabase
+            .from('user_stop_completion')
+            .select('stop_id, completed_at')
+            .eq('user_id', userId);
 
-      console.log(`🔍 Found ${progressKeys.length} ${userId ? 'user-specific' : 'generic'} progress keys`);
+          if (userError) {
+            console.error('Database query failed:', userError);
+            return await this.getLocalProgressForUser(userId);
+          }
 
-      const completedStops: StopProgress[] = [];
+          if (!userCompletions || userCompletions.length === 0) {
+            console.log('No completions in database for this user');
+            const localData = await this.getLocalProgressForUser(userId);
+            console.log(`Local storage has ${localData.length} completions`);
+            return localData;
+          }
 
-      for (const key of progressKeys) {
-        const progressData = await AsyncStorage.getItem(key);
-        if (progressData) {
-          const progress = JSON.parse(progressData);
-          completedStops.push(progress);
+          console.log(`DATABASE SUCCESS: ${userCompletions.length} completions found`);
+          
+          // Get all stop-to-tour mappings at once (more efficient)
+          const mappings = await this.getStopTourMappings();
+          
+          // Map completions to StopProgress format with tour IDs
+          const completionsWithTourId: StopProgress[] = [];
+          
+          for (const completion of userCompletions) {
+            const tourId = mappings[completion.stop_id];
+            
+            completionsWithTourId.push({
+              userId,
+              stopId: completion.stop_id,
+              tourId: tourId,
+              completedAt: new Date(completion.completed_at),
+              isCompleted: true
+            });
+          }
+
+          console.log(`FINAL DATABASE RESULT: ${completionsWithTourId.length} completions with tour_id`);
+
+          // Save to local storage and cache
+          const key = this.getLocalStorageKey(userId, 'progress');
+          await AsyncStorage.setItem(key, JSON.stringify(completionsWithTourId));
+          this.localProgressCache.set(userId, completionsWithTourId);
+
+          return completionsWithTourId;
+          
+        } catch (dbError) {
+          console.error('Database operation failed:', dbError);
+          return await this.getLocalProgressForUser(userId);
         }
       }
 
-      return completedStops;
+      // Offline mode
+      console.log('OFFLINE: Using local storage only');
+      return await this.getLocalProgressForUser(userId);
     } catch (error) {
-      console.error('❌ Error getting local completed stops:', error);
-      return [];
+      console.error('Critical error in getCompletedStops:', error);
+      // Final fallback
+      return await this.getLocalProgressForUser(userId);
     }
   }
 
   // Get completed stops for specific tour
-  async getCompletedStopsForTour(userId: string, tourId: string): Promise<StopProgress[]> {
-    const allCompleted = await this.getCompletedStops(userId);
+  async getCompletedStopsForTour(userId: string, tourId: string, isOnline?: boolean): Promise<StopProgress[]> {
+    const allCompleted = await this.getCompletedStops(userId, isOnline);
     return allCompleted.filter(stop => stop.tourId === tourId);
   }
 
-  // Get total completed stops count (unique)
+  // Get total completed count
   async getTotalCompletedCount(userId: string): Promise<number> {
-    const completedStops = await this.getCompletedStops(userId);
-    
-    // Use Set to ensure uniqueness (in case of duplicates)
-    const uniqueStops = new Set(completedStops.map(stop => stop.stopId));
-    return uniqueStops.size;
-  }
-
-  // Clear all progress (for logout/reset)
-  async clearAllProgress(): Promise<void> {
     try {
-      const keys = await AsyncStorage.getAllKeys();
-      const progressKeys = keys.filter(key => 
-        key.startsWith('progress_') || key === 'offline_completion_queue'
-      );
+      console.log('Getting total completed count for user:', userId);
       
-      await AsyncStorage.multiRemove(progressKeys);
-      
-      console.log('✅ All progress cleared');
+      if (!userId || userId.trim() === '') {
+        console.error('Invalid userId provided');
+        return 0;
+      }
+
+      const online = await this.isOnline();
+      console.log('Network status:', online ? 'ONLINE' : 'OFFLINE');
+
+      if (online) {
+        try {
+          // Direct count query to database
+          const { count, error } = await supabase
+            .from('user_stop_completion')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', userId);
+
+          if (error) {
+            console.error('Database count query failed:', error);
+            const localProgress = await this.getLocalProgressForUser(userId);
+            return localProgress.length;
+          }
+
+          console.log('Database count result:', count);
+          return count || 0;
+
+        } catch (dbError) {
+          console.error('Database error:', dbError);
+          const localProgress = await this.getLocalProgressForUser(userId);
+          return localProgress.length;
+        }
+      } else {
+        // Offline - use local storage
+        const localProgress = await this.getLocalProgressForUser(userId);
+        return localProgress.length;
+      }
+
     } catch (error) {
-      console.error('❌ Error clearing progress:', error);
+      console.error('Error in getTotalCompletedCount:', error);
+      try {
+        const localProgress = await this.getLocalProgressForUser(userId);
+        return localProgress.length;
+      } catch (localError) {
+        console.error('Even local storage failed:', localError);
+        return 0;
+      }
     }
   }
 
-  // Sync progress when user logs in (merge local with remote)
-  async syncProgressOnLogin(userId: string): Promise<void> {
+  // Clear all progress for specific user
+  async clearAllProgress(userId: string): Promise<void> {
     try {
-      console.log('🔄 Syncing progress on login...');
+      console.log(`Clearing all progress for user: ${userId}`);
       
-      // Process any offline queue first
-      await this.processOfflineQueue();
-      
-      // Get remote completions
+      // Clear from database if online
       const online = await this.isOnline();
       if (online) {
-        const remoteCompletions = await this.getCompletedStops(userId);
-        
-        // Save remote completions to local storage for offline access
-        for (const completion of remoteCompletions) {
-          await this.saveToLocalStorage(
-            completion.stopId, 
-            completion.tourId, 
-            completion.completedAt
-          );
+        try {
+          const { error } = await supabase
+            .from('user_stop_completion')
+            .delete()
+            .eq('user_id', userId);
+            
+          if (error) {
+            console.warn('Could not clear from database:', error);
+          } else {
+            console.log('Cleared database records for user');
+          }
+        } catch (dbError) {
+          console.warn('Database clear failed:', dbError);
         }
-        
-        console.log(`✅ Synced ${remoteCompletions.length} completions from server`);
       }
+      
+      // Clear local storage
+      const progressKey = this.getLocalStorageKey(userId, 'progress');
+      const queueKey = this.getLocalStorageKey(userId, 'queue');
+      
+      await AsyncStorage.multiRemove([progressKey, queueKey]);
+      this.invalidateCache(userId);
+      
+      console.log('All progress cleared successfully');
     } catch (error) {
-      console.error('❌ Error syncing progress on login:', error);
+      console.error('Error clearing progress:', error);
     }
   }
-  // ADDED: Force clear all progress data (for testing/debugging)
-  async forceResetAllProgress(): Promise<void> {
+
+  // Sync progress when user logs in
+  async syncProgressOnLogin(userId: string): Promise<void> {
     try {
-      console.log('🧹 FORCE CLEARING ALL PROGRESS DATA...');
+      console.log(`Syncing progress on login for user: ${userId}`);
       
-      // Clear AsyncStorage
-      const keys = await AsyncStorage.getAllKeys();
-      const progressKeys = keys.filter(key => 
-        key.startsWith('progress_') || 
-        key === 'offline_completion_queue' ||
-        key.includes('completed')
-      );
+      // Process any offline queue first
+      await this.processOfflineQueue(userId);
       
-      if (progressKeys.length > 0) {
-        await AsyncStorage.multiRemove(progressKeys);
-        console.log(`✅ Cleared ${progressKeys.length} items from AsyncStorage:`, progressKeys);
+      // Get remote completions and merge with local
+      const online = await this.isOnline();
+      if (online) {
+        await this.getCompletedStops(userId, online); // This will automatically merge and save locally
+        console.log(`Progress synced successfully for user ${userId}`);
+      } else {
+        console.log(`Offline: using local progress only for user ${userId}`);
       }
-
-      // Clear offline queue
-      await AsyncStorage.removeItem('offline_completion_queue');
-      console.log('✅ Cleared offline completion queue');
-      
-      console.log('🎉 ALL PROGRESS DATA CLEARED - Ready for fresh testing');
     } catch (error) {
-      console.error('❌ Error force clearing progress:', error);
+      console.error('Error syncing progress on login:', error);
     }
   }
 
+  // Refresh progress
+  async refreshProgress(userId: string): Promise<void> {
+    try {
+      console.log('Refreshing progress for user:', userId);
+      
+      const online = await this.isOnline();
+      if (online) {
+        await this.processOfflineQueue(userId);
+      }
+      
+      // Clear cache to force fresh data
+      this.localProgressCache.delete(userId);
+      
+      // Reload progress
+      await this.getCompletedStops(userId, online);
+      
+      console.log('Progress refreshed successfully');
+    } catch (error) {
+      console.error('Error refreshing progress:', error);
+    }
+  }
 }
 
 export const progressService = ProgressService.getInstance();
