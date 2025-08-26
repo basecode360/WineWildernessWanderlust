@@ -189,22 +189,36 @@ export default function OfflineDownloadsScreen() {
     router.push(`/tour/player/${tourId}`);
   };
 
-  const formatDownloadDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+const formatDownloadDate = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffTime = now.getTime() - date.getTime();
 
-    if (diffDays === 1) return 'Downloaded yesterday';
-    if (diffDays < 7) return `Downloaded ${diffDays} days ago`;
-    if (diffDays < 30) return `Downloaded ${Math.ceil(diffDays / 7)} weeks ago`;
-    
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
+  const diffMinutes = Math.floor(diffTime / (1000 * 60));
+  const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffMinutes < 60) {
+    if (diffMinutes < 1) return 'Downloaded just now';
+    return `Downloaded ${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+  }
+
+  if (diffHours < 24) {
+    return `Downloaded ${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+  }
+
+  if (diffDays === 1) return 'Downloaded yesterday';
+  if (diffDays < 7) return `Downloaded ${diffDays} days ago`;
+  if (diffDays < 30) return `Downloaded ${Math.ceil(diffDays / 7)} weeks ago`;
+
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+};
+
+
 
   // Enhanced offline image resolver using tourServices
   const getOfflineImageSource = (tour: OfflineContent) => {
@@ -614,6 +628,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap:20
   },
   downloadDate: {
     fontSize: 11,

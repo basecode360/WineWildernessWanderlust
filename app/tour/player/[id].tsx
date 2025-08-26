@@ -2,6 +2,7 @@
 import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 import * as Location from "expo-location";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -95,6 +96,7 @@ export default function TourPlayerScreen() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showLocationWarning, setShowLocationWarning] = useState(false);
 
+  const audioLockRef = useRef(false);
   const audioRef = useRef<Audio.Sound | null>(null);
   const locationService = useRef(LocationService.getInstance());
   const autoPlayTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -102,8 +104,66 @@ export default function TourPlayerScreen() {
   // Proximity trigger guards (session-scoped)
   const isTriggeringRef = useRef(false);
   const playedSetRef = useRef<Set<string>>(new Set());
+  // simple loading guard for UX
+  const prefetchAround = useRef(false);
+  const prefetchNextAudios = useCallback(async () => {
+    if (!tour) return;
+    if (prefetchAround.current) return;
+    prefetchAround.current = true;
 
- useEffect(() => {
+    // try current and next one
+    const targets = [currentStopIndex, currentStopIndex + 1]
+      .filter(i => i >= 0 && i < tour.stops.length);
+
+    try {
+      await Promise.all(targets.map(async (i) => {
+        const s = tour.stops[i];
+        if (!s.audio) return;
+        // fire-and-forget best effort; ignore errors
+        try { await getCachedAudioUri(tour.id, s.id, s.audio); } catch { }
+      }));
+    } finally {
+      prefetchAround.current = false;
+    }
+  }, [tour, currentStopIndex]);
+
+  useEffect(() => {
+    prefetchNextAudios();
+  }, [prefetchNextAudios]);
+
+
+  // cache folder for this tour
+  const getAudioCacheDir = (tourId: string) =>
+    `${FileSystem.cacheDirectory}tour-audio/${tourId}/`;
+
+  // ensure directory exists
+  const ensureDirExists = async (dir: string) => {
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    }
+  };
+
+  // pick a stable filename (preserve extension if possible)
+  const filenameFromUrl = (url: string, stopId: string) => {
+    const match = url.match(/\.(mp3|m4a|aac|wav|ogg)(\?|$)/i);
+    const ext = match ? match[1] : "mp3";
+    return `${stopId}.${ext}`;
+  };
+
+  const getCachedAudioUri = async (tourId: string, stopId: string, remoteUrl: string) => {
+    const dir = getAudioCacheDir(tourId);
+    await ensureDirExists(dir);
+    const localPath = dir + filenameFromUrl(remoteUrl, stopId);
+    const info = await FileSystem.getInfoAsync(localPath);
+    if (info.exists) return localPath;
+
+    // download once, then reuse
+    await FileSystem.downloadAsync(remoteUrl, localPath);
+    return localPath;
+  };
+
+  useEffect(() => {
     if (user?.id) {
       getTotalCompletedCount(user.id);
     }
@@ -115,13 +175,13 @@ export default function TourPlayerScreen() {
 
     try {
       console.log('Loading completion data for tour:', tour.id);
-      
+
       // Get completed stops for this specific tour
       const completed = await getCompletedStopsForTour(tour.id);
       const completedStopIds = new Set(completed.map(stop => stop.stopId));
-      
+
       setCompletedStops(completedStopIds);
-      
+
       // Update completion stats
       const stats = {
         completed: completed.length,
@@ -129,7 +189,7 @@ export default function TourPlayerScreen() {
         percentage: tour.stops.length > 0 ? Math.round((completed.length / tour.stops.length) * 100) : 0
       };
       setCompletionStats(stats);
-      
+
       console.log(`Loaded completion data: ${completed.length}/${tour.stops.length} stops completed`);
       console.log('Completed stop IDs:', Array.from(completedStopIds));
     } catch (error) {
@@ -422,9 +482,6 @@ export default function TourPlayerScreen() {
     if (isLocationEnabled && tour) startLocationTracking();
   }, [isLocationEnabled, tour]);
 
-  useEffect(() => {
-    stopCurrentAudio();
-  }, [currentStopIndex]);
 
   // Enhanced auto-play countdown effect with location checking
   useEffect(() => {
@@ -626,18 +683,28 @@ export default function TourPlayerScreen() {
   };
 
   // Enhanced stop current audio function
-  const stopCurrentAudio = async () => {
-    console.log("Stopping current audio");
+  const stopCurrentAudio = async (preserveLock: boolean = false) => {
+    console.log("🛑 Stopping current audio - audioLockRef:", audioLockRef.current);
 
     if (audioRef.current) {
       try {
-        const status = await audioRef.current.getStatusAsync();
-        console.log("Audio status before stop:", status);
+        // Detach listener first to avoid stray callbacks after unload
+        try {
+          audioRef.current.setOnPlaybackStatusUpdate(null as any);
+        } catch { }
 
-        await audioRef.current.stopAsync();
+        const status = await audioRef.current.getStatusAsync();
+        console.log("Audio status before stop:", status.isLoaded ? "loaded" : "not loaded");
+
+        if (status.isLoaded) {
+          await audioRef.current.stopAsync();
+          console.log("✅ Audio stopped successfully");
+        }
+
         await audioRef.current.unloadAsync();
+        console.log("✅ Audio unloaded successfully");
       } catch (error) {
-        console.warn("Error stopping/unloading audio:", error);
+        console.warn("⚠️ Error stopping/unloading audio:", error);
       }
       audioRef.current = null;
     }
@@ -656,7 +723,15 @@ export default function TourPlayerScreen() {
       position: 0,
       duration: 0,
     });
+
+    if (!preserveLock) {
+      audioLockRef.current = false;
+      console.log("🔓 Audio lock released");
+    } else {
+      console.log("🔒 Lock preserved for outer operation");
+    }
   };
+
 
   // Enhanced auto-play countdown with location checking
   const startAutoPlayCountdown = () => {
@@ -701,76 +776,78 @@ export default function TourPlayerScreen() {
   };
 
 
-// FIXED: Audio completion handler - replace the incorrect line around line 546
-const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
-  sound.setOnPlaybackStatusUpdate(async (status) => {
-    if (!status.isLoaded) return;
-
-    // More robust state updates
-    setAudioState((prev) => ({
-      ...prev,
-      position: status.positionMillis || 0,
-      duration: status.durationMillis || 0,
-      isPlaying: status.isPlaying || false,
-      currentStopId: stopId,
-    }));
-
-    if (status.didJustFinish && tour && user) {
-      console.log(`Audio finished for stop: ${stopId} (index: ${currentStopIndex})`);
-
-      // FIXED: Mark stop as completed with CORRECT parameters
-      try {
-        // Check if already completed to avoid duplicate calls
-        if (!completedStops.has(stopId)) {
-          console.log(`Marking stop as completed: ${stopId} for tour: ${tour.id}`);
-          
-          // CORRECT: stopId first, tourId second (no user.id here!)
-          await markStopCompleted(stopId, tour.id);
-          
-          console.log(`Stop ${stopId} marked as completed in progress tracking`);
-          
-          // Refresh completion data to show updated UI
-          await refreshCompletionData();
-        } else {
-          console.log(`Stop ${stopId} was already completed, skipping database insert`);
-        }
-      } catch (error) {
-        console.error('Error marking stop as completed:', error);
+  // FIXED: Audio completion handler - replace the incorrect line around line 546
+  const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
+    sound.setOnPlaybackStatusUpdate(async (status) => {
+      if (!status.isLoaded) {
+        console.log("⚠️ Audio status: not loaded");
+        return;
       }
 
-        // Reset audio state properly
-        setAudioState((prev) => ({
-          ...prev,
-          isPlaying: false,
-          position: 0,
-          currentStopId: null
-        }));
+      // Update state with current status
+      setAudioState((prev) => ({
+        ...prev,
+        position: status.positionMillis || 0,
+        duration: status.durationMillis || 0,
+        isPlaying: status.isPlaying || false,
+        currentStopId: stopId,
+      }));
 
-        // Clean up current audio
-        if (audioRef.current) {
-          try {
-            await audioRef.current.unloadAsync();
-          } catch (error) {
-            console.warn("Error unloading finished audio:", error);
+      // Handle completion
+      if (status.didJustFinish && tour && user) {
+        console.log(`🏁 Audio finished for stop: ${stopId} (index: ${currentStopIndex})`);
+
+        try {
+          // Mark stop as completed
+          if (!completedStops.has(stopId)) {
+            console.log(`✅ Marking stop as completed: ${stopId} for tour: ${tour.id}`);
+            await markStopCompleted(stopId, tour.id);
+            console.log(`✅ Stop ${stopId} marked as completed in progress tracking`);
+            await refreshCompletionData();
+          } else {
+            console.log(`ℹ️ Stop ${stopId} was already completed, skipping database insert`);
           }
-          audioRef.current = null;
+        } catch (error) {
+          console.error('❌ Error marking stop as completed:', error);
         }
 
+        // Clean up current audio
+        try {
+          if (audioRef.current) {
+            await audioRef.current.unloadAsync();
+            audioRef.current = null;
+          }
+        } catch (error) {
+          console.warn("⚠️ Error unloading finished audio:", error);
+        }
+
+        // Reset state
+        setAudioState({
+          isPlaying: false,
+          currentStopId: null,
+          position: 0,
+          duration: 0
+        });
+
+        // Release audio lock
+        audioLockRef.current = false;
+        console.log("🔓 Audio lock released after completion");
+
+        // Handle next stop
         const hasNextStop = currentStopIndex < tour.stops.length - 1;
 
         if (isAutoPlayEnabled && hasNextStop) {
-          console.log(`Auto-play enabled, checking location for next stop (${currentStopIndex + 1}/${tour.stops.length})`);
-          startAutoPlayCountdown(); // This will now check location
+          console.log(`🔄 Auto-play enabled, checking location for next stop (${currentStopIndex + 1}/${tour.stops.length})`);
+          startAutoPlayCountdown();
         } else if (!hasNextStop) {
-          console.log("Tour completed - reached final stop!");
+          console.log("🎉 Tour completed - reached final stop!");
           showTourCompletedMessage();
         } else {
-          console.log("Auto-play disabled, staying on current stop");
+          console.log("⏹️ Auto-play disabled, staying on current stop");
         }
       }
     });
   };
-
   // Cancel auto-play countdown
   const cancelAutoPlay = () => {
     if (autoPlayTimerRef.current) {
@@ -816,139 +893,163 @@ const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
       return;
     }
 
+    // STRICT: Check if audio is already being processed
+    if (audioLockRef.current) {
+      console.log('🔒 Audio lock active, rejecting new audio request');
+      return;
+    }
+
+    audioLockRef.current = true;
+    console.log('🔐 Audio lock acquired');
+
+    // ALWAYS stop any existing audio first, but KEEP the lock held
+    await stopCurrentAudio(true);
+
     const triggerSource = triggeredByLocation ? "location" : "manual";
-    console.log(`triggerAudioForStop -> "${stop.title}" [${stop.id}] (index=${index}, source=${triggerSource})`);
+    console.log(`🎵 triggerAudioForStop -> "${stop.title}" [${stop.id}] (index=${index}, source=${triggerSource})`);
 
     try {
-      // Stop any currently playing audio first
-      await stopCurrentAudio();
+      // ALWAYS stop any existing audio first but PRESERVE the lock (Step 1)
+      await stopCurrentAudio(true);
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        staysActiveInBackground: true,
-        playsInSilentModeIOS: true,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
+      try {
+        let audioUri: string | null = null;
 
-      let audioUri: string | null = null;
-
-      // Try offline first if in offline mode
-      if (isOfflineMode) {
-        audioUri = await getOfflineAudioPath(tour.id, stop.id);
-        if (audioUri) {
-          console.log(`Found offline audio for stop ${stop.id}`);
+        // prefer true offline
+        if (isOfflineMode) {
+          audioUri = await getOfflineAudioPath(tour.id, stop.id);
         }
-      }
 
-      // Use stop.audio if it's already set
-      if (!audioUri && stop.audio) {
-        audioUri = stop.audio;
-        console.log(`Using stop audio URL for ${stop.id}`);
-      }
+        // if not offline, cache the remote once and play local
+        if (!audioUri && stop.audio) {
+          // warm local cache for faster subsequent plays
+          audioUri = await getCachedAudioUri(tour.id, stop.id, stop.audio);
+        }
 
-      if (!audioUri) {
-        const message = `Audio is not available for: ${stop.title}${isOfflineMode ? ' (not downloaded for offline use)' : ''}`;
-
-        if (triggeredByLocation) {
-          console.warn(`Location-triggered audio not available: ${message}`);
-          // Don't show alert for location-triggered failures, just log
-          return;
-        } else {
-          Alert.alert("Audio Not Available", message);
+        if (!audioUri) {
+          if (!triggeredByLocation) {
+            Alert.alert("Audio Not Available", `Could not find audio for: ${stop.title}`);
+          }
           return;
         }
+
+        // create & play
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: audioUri },
+          { shouldPlay: true, volume: 1.0, isLooping: false }
+        );
+
+        audioRef.current = sound;
+        setupAudioPlaybackListener(sound, stop.id);
+
+        setAudioState({
+          isPlaying: true,
+          currentStopId: stop.id,
+          position: 0,
+          duration: 0,
+        });
+
+        setCurrentStopIndex(index);
+
+        setTour((prev) => {
+          if (!prev) return prev;
+          const updated = [...prev.stops];
+          updated[index] = { ...updated[index], isPlayed: true };
+          return { ...prev, stops: updated };
+        });
+
+      } catch (e) {
+        console.error("❌ Audio playback error:", e);
+        setAudioState({ isPlaying: false, currentStopId: null, position: 0, duration: 0 });
+        if (!triggeredByLocation) {
+          Alert.alert("Playback Error", `Could not play audio for: ${stop.title}`);
+        }
+      } finally {
       }
 
-      console.log(`Creating audio with URI: ${audioUri}`);
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: true, volume: 1.0 }
-      );
-
-      audioRef.current = sound;
-      setupAudioPlaybackListener(sound, stop.id);
-
-      // Set initial state - audio should be playing
-      setAudioState({
-        isPlaying: true,
-        currentStopId: stop.id,
-        position: 0,
-        duration: 0,
-      });
-
-      setCurrentStopIndex(index);
-
-      // Update tour stop as played
-      setTour((prev) => {
-        if (!prev) return prev;
-        const updatedStops = [...prev.stops];
-        updatedStops[index] = { ...updatedStops[index], isPlayed: true };
-        return { ...prev, stops: updatedStops };
-      });
-
-      console.log(`Audio started for stop: ${stop.title} (triggered by ${triggerSource})`);
-
-    } catch (error) {
-      console.error("Audio playback error:", error);
-
-      // Reset state on error
-      setAudioState({
-        isPlaying: false,
-        currentStopId: null,
-        position: 0,
-        duration: 0,
-      });
-
+    } catch (outerErr) {
+      console.error("❌ triggerAudioForStop outer error:", outerErr);
       if (!triggeredByLocation) {
-        Alert.alert("Audio Not Available", `Could not play audio for: ${stop.title}`);
+        Alert.alert("Playback Error", `Something went wrong preparing audio for: ${stop.title}`);
       }
+    } finally {
+      // ✅ ALWAYS release the lock, even on early return or thrown error
+      audioLockRef.current = false;
+      console.log('🔓 Audio lock released');
     }
   };
 
   // Fixed toggle audio function with better error handling and state management
   const toggleAudio = async () => {
+    console.log("🎛️ Toggle audio requested");
+
+    // Prevent multiple rapid toggles
+    if (audioLockRef.current) {
+      console.log('🔒 Audio operation in progress, ignoring toggle request');
+      return;
+    }
+
     try {
       // If no audio is loaded, start playing the current stop
       if (!audioRef.current && tour?.stops[currentStopIndex]) {
-        console.log("No audio loaded, starting playback for current stop");
+        console.log("🎵 No audio loaded, starting playback for current stop");
         await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
         return;
       }
 
       // If audio exists, toggle play/pause
       if (audioRef.current) {
-        if (audioState.isPlaying) {
-          console.log("Pausing audio");
+        const status = await audioRef.current.getStatusAsync();
+
+        if (!status.isLoaded) {
+          console.log("⚠️ Audio not loaded, restarting playback");
+          await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
+          return;
+        }
+
+        if (status.isPlaying) {
+          console.log("⏸️ Pausing audio");
           await audioRef.current.pauseAsync();
-          // Immediately update state to show pause icon
           setAudioState((prev) => ({ ...prev, isPlaying: false }));
         } else {
-          console.log("Resuming audio");
+          console.log("▶️ Resuming audio");
           await audioRef.current.playAsync();
-          // Immediately update state to show play icon
           setAudioState((prev) => ({ ...prev, isPlaying: true }));
         }
       } else {
-        console.warn("No audio reference available");
-        // Reset audio state if no reference exists
-        setAudioState((prev) => ({
-          ...prev,
+        console.warn("⚠️ No audio reference available, restarting");
+        // Reset and restart
+        setAudioState({
           isPlaying: false,
           currentStopId: null,
           position: 0,
           duration: 0
-        }));
+        });
+
+        if (tour?.stops[currentStopIndex]) {
+          await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
+        }
       }
     } catch (error) {
-      console.error("Toggle audio error:", error);
+      console.error("❌ Toggle audio error:", error);
+
       // Reset state on error
-      setAudioState((prev) => ({
-        ...prev,
+      setAudioState({
         isPlaying: false,
-        currentStopId: null
-      }));
-      Alert.alert("Playback Error", "Could not toggle audio playback. Please try selecting the stop again.");
+        currentStopId: null,
+        position: 0,
+        duration: 0
+      });
+
+      // Try to restart audio
+      if (tour?.stops[currentStopIndex]) {
+        try {
+          await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
+        } catch (restartError) {
+          console.error("Failed to restart audio:", restartError);
+          Alert.alert("Playback Error", "Could not restart audio playback. Please try selecting the stop again.");
+        }
+      }
     }
   };
 
@@ -999,21 +1100,31 @@ const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
 
   // Enhanced handle stop press with audio management
   const handleStopPress = async (stop: TourStop, index: number) => {
-    console.log(`Stop pressed: ${stop.title} (index: ${index})`);
+    console.log(`👆 Stop pressed: ${stop.title} (index: ${index})`);
+
+    // Prevent rapid clicking
+    if (audioLockRef.current) {
+      console.log('🔒 Audio operation in progress, ignoring stop press');
+      return;
+    }
 
     // Cancel auto-play when user manually selects a stop
     cancelAutoPlay();
-
-    // Reset location trigger lock when manually selecting
     setLastTriggeredStopId(null);
 
-    // If this is the currently selected stop and audio is playing, just toggle
-    if (index === currentStopIndex && audioRef.current) {
-      await toggleAudio();
+    // If this is the currently selected stop
+    if (index === currentStopIndex) {
+      // If audio is loaded, just toggle play/pause
+      if (audioRef.current) {
+        await toggleAudio();
+      } else {
+        // No audio loaded for current stop, start playing
+        await triggerAudioForStop(stop, index, false);
+      }
     } else {
-      // Different stop selected, change to it and start playing
+      // Different stop selected, switch to it and start playing
       setCurrentStopIndex(index);
-      // Small delay to ensure state updates, then trigger audio (manual trigger)
+      // Small delay to ensure state updates, then trigger audio
       setTimeout(() => {
         triggerAudioForStop(stop, index, false);
       }, 100);
@@ -1025,16 +1136,20 @@ const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
   };
 
   const handlePreviousStop = () => {
+    if (!tour) return;
     if (currentStopIndex > 0) {
       cancelAutoPlay();
-      setCurrentStopIndex(currentStopIndex - 1);
+      const nextIndex = currentStopIndex - 1;
+      triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }
   };
 
   const handleNextStop = () => {
-    if (tour && currentStopIndex < tour.stops.length - 1) {
+    if (!tour) return;
+    if (currentStopIndex < tour.stops.length - 1) {
       cancelAutoPlay();
-      setCurrentStopIndex(currentStopIndex + 1);
+      const nextIndex = currentStopIndex + 1;
+      triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }
   };
 
@@ -1063,8 +1178,10 @@ const setupAudioPlaybackListener = (sound: Audio.Sound, stopId: string) => {
 
   // Improved icon function with debugging
   const getPlayButtonIcon = () => {
-    const icon = audioState.isPlaying ? "pause" : "play";
-    //console.log(`Icon should be: ${icon} (isPlaying: ${audioState.isPlaying})`);
+    // Check if audio is actually playing
+    const isCurrentlyPlaying = audioState.isPlaying && audioRef.current !== null;
+    const icon = isCurrentlyPlaying ? "pause" : "play";
+    console.log(`🎛️ Play button icon: ${icon} (isPlaying: ${audioState.isPlaying}, hasRef: ${!!audioRef.current})`);
     return icon;
   };
 

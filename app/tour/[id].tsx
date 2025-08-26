@@ -1,4 +1,4 @@
-// app/tour/[id].tsx - Fixed Tour Detail Screen with async image loading
+// app/tour/[id].tsx - Enhanced Tour Detail Screen with offline support
 import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
@@ -24,12 +24,14 @@ import { ERROR_MESSAGES } from "../../utils/constants";
 export default function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth(); 
+  
   // Tour state
   const [tour, setTour] = useState<Tour | null>(null);
   const [isLoadingTour, setIsLoadingTour] = useState(true);
   const [tourError, setTourError] = useState<string | null>(null);
+  const [isLoadingOffline, setIsLoadingOffline] = useState(false); // NEW: Track offline loading
 
-  // Image URLs state - NEW: Added state for resolved image URLs
+  // Image URLs state
   const [tourImageUrl, setTourImageUrl] = useState<string | null>(null);
   const [stopImageUrls, setStopImageUrls] = useState<Map<string, string>>(new Map());
 
@@ -44,6 +46,9 @@ export default function TourDetailScreen() {
     isDownloading,
     formatStorageSize,
     cancelDownload,
+    isOnline, // NEW: Use network status
+    getOfflineTour, // NEW: Get offline tour data
+    getOfflineImagePath, // NEW: Get offline image paths
   } = useOffline();
 
   // Load tour data on component mount
@@ -53,59 +58,74 @@ export default function TourDetailScreen() {
     }
   }, [id]);
 
-  // NEW: Load image URLs when tour changes
+  // Load image URLs when tour changes
   useEffect(() => {
     if (tour) {
       loadImageUrls();
     }
   }, [tour]);
 
-  // NEW: Function to load all image URLs asynchronously
-  const loadImageUrls = async () => {
-    if (!tour) return;
-
-    try {
-      // Load main tour image
-      const mainImageUrl = await getImageUrl(tour.image, tour.id, 'main');
-      setTourImageUrl(mainImageUrl);
-
-      // Load stop images
-      const stopImageMap = new Map<string, string>();
-      
-      for (const stop of tour.stops) {
-        if (stop.image) {
-          const imageKey = `${stop.id}_image`;
-          const stopImageUrl = await getImageUrl(stop.image, tour.id, imageKey);
-          if (stopImageUrl) {
-            stopImageMap.set(stop.id, stopImageUrl);
-          }
-        }
-      }
-      
-      setStopImageUrls(stopImageMap);
-    } catch (error) {
-      console.warn('⚠️ Error loading image URLs:', error);
-    }
-  };
-
-  // Function to load tour from Supabase
+  // NEW: Enhanced function to load tour from offline or online
   const loadTour = async (tourId: string) => {
     try {
       setIsLoadingTour(true);
       setTourError(null);
-      console.log(`🔄 Loading tour details for: ${tourId}`);
+      console.log(`Loading tour details for: ${tourId}`);
 
-      const tourData = await getTourById(tourId);
-      setTour(tourData);
+      let tourData: Tour | null = null;
 
+      // First, try to load from offline cache if available
+      if (isTourOffline(tourId)) {
+        console.log(`Tour ${tourId} is available offline, loading from cache...`);
+        setIsLoadingOffline(true);
+        
+        try {
+          const offlineContent = getOfflineTour(tourId);
+          if (offlineContent) {
+            tourData = offlineContent.tourData;
+            console.log(`✅ Tour loaded from offline cache: ${tourData.title}`);
+          }
+        } catch (offlineError) {
+          console.warn('⚠️ Failed to load from offline cache:', offlineError);
+        } finally {
+          setIsLoadingOffline(false);
+        }
+      }
+
+      // If not found offline or if online, try to fetch from Supabase
+      if (!tourData && isOnline) {
+        console.log(`Fetching tour ${tourId} from Supabase...`);
+        try {
+          tourData = await getTourById(tourId);
+          if (tourData) {
+            console.log(`✅ Tour loaded from Supabase: ${tourData.title} with ${tourData.stops.length} stops`);
+          }
+        } catch (onlineError) {
+          console.warn('⚠️ Failed to load from Supabase:', onlineError);
+          
+          // If online fetch fails but we have offline data, still use offline
+          if (isTourOffline(tourId)) {
+            const offlineContent = getOfflineTour(tourId);
+            if (offlineContent) {
+              tourData = offlineContent.tourData;
+              console.log(`✅ Fallback to offline data: ${tourData.title}`);
+            }
+          }
+        }
+      }
+
+      // Set tour data
       if (tourData) {
-        console.log(
-          `✅ Tour loaded: ${tourData.title} with ${tourData.stops.length} stops`
-        );
+        setTour(tourData);
       } else {
         console.log(`⚠️ Tour ${tourId} not found`);
-        setTourError("Tour not found");
+        if (!isOnline) {
+          setTourError("This tour is not available offline. Please connect to the internet to view it.");
+        } else {
+          setTourError("Tour not found");
+        }
       }
+
     } catch (error) {
       console.error("❌ Failed to load tour:", error);
       setTourError(
@@ -113,6 +133,64 @@ export default function TourDetailScreen() {
       );
     } finally {
       setIsLoadingTour(false);
+      setIsLoadingOffline(false);
+    }
+  };
+
+  // NEW: Enhanced function to load image URLs (offline-first)
+  const loadImageUrls = async () => {
+    if (!tour) return;
+
+    try {
+      const isOfflineTour = isTourOffline(tour.id);
+      
+      // Load main tour image
+      let mainImageUrl: string | null = null;
+      
+      if (isOfflineTour && user) {
+        // Try offline first
+        mainImageUrl = await getOfflineImagePath(tour.id, 'main', user.id);
+        console.log(`Offline main image path: ${mainImageUrl}`);
+      }
+      
+      if (!mainImageUrl && isOnline) {
+        // Fallback to online
+        mainImageUrl = await getImageUrl(tour.image, tour.id, 'main');
+        console.log(`Online main image URL: ${mainImageUrl}`);
+      }
+      
+      if (mainImageUrl) {
+        setTourImageUrl(mainImageUrl);
+      }
+
+      // Load stop images
+      const stopImageMap = new Map<string, string>();
+      
+      for (const stop of tour.stops) {
+        if (stop.image) {
+          const imageKey = `${stop.id}_image`;
+          let stopImageUrl: string | null = null;
+          
+          if (isOfflineTour && user) {
+            // Try offline first
+            stopImageUrl = await getOfflineImagePath(tour.id, imageKey, user.id);
+          }
+          
+          if (!stopImageUrl && isOnline) {
+            // Fallback to online
+            stopImageUrl = await getImageUrl(stop.image, tour.id, imageKey);
+          }
+          
+          if (stopImageUrl) {
+            stopImageMap.set(stop.id, stopImageUrl);
+          }
+        }
+      }
+      
+      setStopImageUrls(stopImageMap);
+      
+    } catch (error) {
+      console.warn('⚠️ Error loading image URLs:', error);
     }
   };
 
@@ -128,6 +206,15 @@ export default function TourDetailScreen() {
     if (isPurchased) {
       // Already purchased, start tour
       router.push(`/tour/player/${tour.id}`);
+      return;
+    }
+
+    // Check if online for purchase
+    if (!isOnline) {
+      Alert.alert(
+        "Internet Required",
+        "You need an internet connection to purchase tours. Please connect to WiFi or mobile data and try again."
+      );
       return;
     }
 
@@ -172,6 +259,15 @@ export default function TourDetailScreen() {
       return;
     }
 
+    // Check if online for download
+    if (!isOnline) {
+      Alert.alert(
+        "Internet Required",
+        "You need an internet connection to download tours for offline use."
+      );
+      return;
+    }
+
     if (isOffline) {
       // Tour is already downloaded, offer to remove it
       Alert.alert(
@@ -180,19 +276,17 @@ export default function TourDetailScreen() {
         [
           { text: "Cancel", style: "cancel" },
           {
-  text: "Remove",
-  style: "destructive",
-  onPress: async () => {
-    try {
-      // Pass both tourId and userId
-      await removeTour(id as string);
-      Alert.alert("Success", "Tour removed from offline storage.");
-    } catch (error) {
-      Alert.alert("Error", "Failed to remove tour from offline storage.");
-    }
-  },
-},
-
+            text: "Remove",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await removeTour(id as string);
+                Alert.alert("Success", "Tour removed from offline storage.");
+              } catch (error) {
+                Alert.alert("Error", "Failed to remove tour from offline storage.");
+              }
+            },
+          },
         ]
       );
       return;
@@ -243,7 +337,15 @@ export default function TourDetailScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#5CC4C4" />
-        <Text style={styles.loadingText}>Loading tour details...</Text>
+        <Text style={styles.loadingText}>
+          {isLoadingOffline ? "Loading offline content..." : "Loading tour details..."}
+        </Text>
+        {/* NEW: Show network status */}
+        {!isOnline && (
+          <Text style={styles.offlineIndicator}>
+            📱 Offline Mode
+          </Text>
+        )}
       </View>
     );
   }
@@ -255,6 +357,14 @@ export default function TourDetailScreen() {
         <Ionicons name="warning-outline" size={64} color="#F44336" />
         <Text style={styles.errorTitle}>Unable to Load Tour</Text>
         <Text style={styles.errorText}>{tourError || "Tour not found"}</Text>
+        
+        {/* NEW: Show different options based on network status */}
+        {!isOnline && (
+          <Text style={styles.offlineHint}>
+            📱 You're offline. This tour might be available when you connect to the internet.
+          </Text>
+        )}
+        
         <TouchableOpacity
           style={styles.retryButton}
           onPress={() => id && loadTour(id as string)}
@@ -284,15 +394,23 @@ export default function TourDetailScreen() {
         {item.address && <Text style={styles.stopAddress}>{item.address}</Text>}
         {item.tips && <Text style={styles.stopTips}>💡 {item.tips}</Text>}
       </View>
- 
     </View>
   );
 
   return (
     <ScrollView style={styles.container}>
+      {/* NEW: Offline indicator banner */}
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="wifi-outline" size={16} color="#fff" />
+          <Text style={styles.offlineBannerText}>
+            Offline Mode - {isOffline ? "Using downloaded content" : "Limited functionality"}
+          </Text>
+        </View>
+      )}
+
       {/* Tour Header Image */}
       <View style={styles.imageContainer}>
-        {/* FIXED: Use resolved tourImageUrl instead of calling getImageUrl directly */}
         {tourImageUrl ? (
           <Image
             source={{ uri: tourImageUrl }}
@@ -307,13 +425,24 @@ export default function TourDetailScreen() {
             }}
           />
         ) : (
-          ""
+          <View style={styles.imagePlaceholder}>
+            <Ionicons name="image-outline" size={64} color="#ccc" />
+            <Text style={styles.imagePlaceholderText}>Image not available</Text>
+          </View>
         )}
 
         {isPurchased && (
           <View style={styles.purchasedBadge}>
             <Ionicons name="checkmark-circle" size={24} color="#fff" />
             <Text style={styles.purchasedText}>Purchased</Text>
+          </View>
+        )}
+
+        {/* NEW: Offline indicator on image */}
+        {isOffline && (
+          <View style={styles.offlineImageBadge}>
+            <Ionicons name="cloud-done" size={20} color="#fff" />
+            <Text style={styles.offlineImageBadgeText}>Offline</Text>
           </View>
         )}
       </View>
@@ -352,16 +481,21 @@ export default function TourDetailScreen() {
             style={[
               styles.purchaseButton,
               isPurchased && styles.purchaseButtonPurchased,
+              !isOnline && !isPurchased && styles.purchaseButtonDisabled, // NEW: Disable when offline
             ]}
             onPress={handlePurchase}
+            disabled={!isOnline && !isPurchased} // NEW: Disable purchase when offline
           >
-            <Text style={styles.purchaseButtonText}>
-              {isPurchased ? "Start Tour" : "Purchase Tour"}
+            <Text style={[
+              styles.purchaseButtonText,
+              !isOnline && !isPurchased && styles.purchaseButtonTextDisabled
+            ]}>
+              {isPurchased ? "Start Tour" : !isOnline ? "Internet Required" : "Purchase Tour"}
             </Text>
             <Ionicons
-              name={isPurchased ? "play" : "card-outline"}
+              name={isPurchased ? "play" : !isOnline ? "wifi-outline" : "card-outline"}
               size={20}
-              color="#fff"
+              color={!isOnline && !isPurchased ? "#999" : "#fff"}
               style={{ marginLeft: 8 }}
             />
           </TouchableOpacity>
@@ -429,16 +563,23 @@ export default function TourDetailScreen() {
 
             {!downloading && !isOffline && (
               <TouchableOpacity
-                style={styles.downloadButton}
+                style={[
+                  styles.downloadButton,
+                  !isOnline && styles.downloadButtonDisabled // NEW: Disable when offline
+                ]}
                 onPress={handleDownload}
+                disabled={!isOnline} // NEW: Disable download when offline
               >
                 <Ionicons
                   name="cloud-download-outline"
                   size={20}
-                  color="#5CC4C4"
+                  color={isOnline ? "#5CC4C4" : "#999"}
                 />
-                <Text style={styles.downloadButtonText}>
-                  Download for Offline
+                <Text style={[
+                  styles.downloadButtonText,
+                  !isOnline && styles.downloadButtonTextDisabled
+                ]}>
+                  {isOnline ? "Download for Offline" : "Internet Required"}
                 </Text>
               </TouchableOpacity>
             )}
@@ -863,5 +1004,67 @@ const styles = StyleSheet.create({
   },
   stopSeparator: {
     height: 12,
+  },
+  offlineBanner: {
+    backgroundColor: '#FF9800',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  offlineBannerText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  offlineIndicator: {
+    color: '#FF9800',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  offlineHint: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
+    marginVertical: 8,
+    paddingHorizontal: 20,
+  },
+  offlineImageBadge: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    backgroundColor: 'rgba(76, 175, 80, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  offlineImageBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+
+  imagePlaceholderText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 8,
+  },
+  purchaseButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+  purchaseButtonTextDisabled: {
+    color: '#999',
+  },
+  downloadButtonDisabled: {
+    opacity: 0.5,
+  },
+  downloadButtonTextDisabled: {
+    color: '#999',
   },
 });
