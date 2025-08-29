@@ -2,10 +2,12 @@
 import { StripeProvider } from '@stripe/stripe-react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { Platform } from 'react-native';
 import { AuthProvider } from '../contexts/AuthContext';
 import { OfflineProvider } from '../contexts/OfflineContext';
 import { ProgressProvider } from '../contexts/ProgressContext';
 import { PurchaseProvider } from '../contexts/PurchaseContext';
+import IOSBackButton from '../components/IOSBackButton';
 
 const STRIPE_PUBLISHABLE_KEY =
   process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
@@ -32,6 +34,9 @@ export default function RootLayout() {
                 headerTitleStyle: {
                   fontWeight: 'bold',
                 },
+                headerLeft: Platform.OS === 'ios' 
+                  ? () => <IOSBackButton />
+                  : undefined,
               }}
             >
               {/* Main entry point - handles auth redirection */}
@@ -59,12 +64,26 @@ export default function RootLayout() {
                 }}
               />
 
+              {/* Not Found - Show header with back button */}
+              <Stack.Screen
+                name="+not-found"
+                options={{
+                  title: 'Page Not Found',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Home" />
+                    : undefined,
+                }}
+              />
+
               {/* Tour Details - Shown from tabs */}
               <Stack.Screen
                 name="tour/[id]"
                 options={{
                   title: 'Tour Details',
                   presentation: 'card',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Tours" />
+                    : undefined,
                 }}
               />
 
@@ -74,6 +93,9 @@ export default function RootLayout() {
                 options={{
                   title: 'Audio Tour',
                   presentation: 'fullScreenModal',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Tour" />
+                    : undefined,
                 }}
               />
 
@@ -81,8 +103,12 @@ export default function RootLayout() {
               <Stack.Screen
                 name="offline-downloads"
                 options={{
-                  headerShown: false,
+                  headerShown: true,
                   presentation: 'modal',
+                  title: 'Offline Downloads',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Profile" />
+                    : undefined,
                 }}
               />
             </Stack>

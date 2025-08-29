@@ -371,26 +371,9 @@ const formatDownloadDate = (dateString: string) => {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <SafeAreaView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Downloaded Tours</Text>
-          <View style={styles.connectionStatus}>
-            <Ionicons 
-              name={isOnline ? "wifi" : "wifi-off"} 
-              size={16} 
-              color={isOnline ? "#5CC4C4" : "#FF9800"} 
-            />
-          </View>
-        </View>
 
         {/* Storage Warning */}
         {renderStorageWarning()}
