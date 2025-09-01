@@ -9,7 +9,12 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["audio"],
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses location to automatically play audio when you reach tour stops.",
+        "NSLocationWhenInUseUsageDescription": "This app uses location to automatically play audio when you reach tour stops."
+      }
     },
     "android": {
       "adaptiveIcon": {

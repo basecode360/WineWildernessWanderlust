@@ -126,13 +126,13 @@ export default function ToursScreen() {
   useEffect(() => {
     if (offlineTours.length > 0 && tours.length === 0 && !isLoadingTours) {
       console.log("No online tours but found offline tours, using offline data");
+      setDataSource("offline");
       setTours(
         offlineTours.map((content) => ({
           ...content.tourData,
           isDownloaded: true,
         }))
       );
-      setDataSource("offline");
       setIsLoadingTours(false);
     }
   }, [offlineTours, tours.length, isLoadingTours]);
@@ -153,8 +153,7 @@ export default function ToursScreen() {
             isDownloaded: true,
           }))
         );
-        setDataSource("offline");
-        setIsLoadingTours(false);
+          setIsLoadingTours(false);
       }
 
       // Then try to fetch online tours (if connected)
@@ -181,8 +180,7 @@ export default function ToursScreen() {
                 isDownloaded: true,
               }))
             );
-            setDataSource("offline");
-          } else {
+                } else {
             // No offline tours and online failed
             throw onlineError;
           }
@@ -199,8 +197,7 @@ export default function ToursScreen() {
               isDownloaded: true,
             }))
           );
-          setDataSource("offline");
-        } else {
+            } else {
           // No network and no offline tours
           throw new Error("No internet connection and no offline tours available");
         }
@@ -217,8 +214,7 @@ export default function ToursScreen() {
             isDownloaded: true,
           }))
         );
-        setDataSource("offline");
-        setToursError(null); // Clear error since we have fallback data
+          setToursError(null); // Clear error since we have fallback data
       } else {
         setToursError(
           error instanceof Error ? error.message : ERROR_MESSAGES.API_ERROR
@@ -377,25 +373,6 @@ useEffect(() => {
     return `${count} stops`;
   };
 
-  // FIXED: Render data source indicator - corrected the logic
-  const renderDataSourceIndicator = () => {
-    if (dataSource === "offline") {
-      return (
-        <View style={styles.dataSourceIndicator}>
-          <Ionicons name="cloud-offline" size={16} color="#FF9800" />
-          <Text style={styles.dataSourceText}>Offline Mode</Text>
-        </View>
-      );
-    } else if (dataSource === "mixed") {
-      return (
-        <View style={[styles.dataSourceIndicator, { backgroundColor: "rgba(76, 175, 80, 0.1)" }]}>
-          <Ionicons name="cloud-done" size={16} color="#4CAF50" />
-          <Text style={[styles.dataSourceText, { color: "#4CAF50" }]}>Online + Offline</Text>
-        </View>
-      );
-    }
-    return null;
-  };
 
   // Loading state - don't show loading if we have offline tours
   if (
@@ -481,8 +458,6 @@ useEffect(() => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Network Status Indicator */}
-        {renderDataSourceIndicator()}
 
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
@@ -500,7 +475,7 @@ useEffect(() => {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              {dataSource === "offline" ? "Downloaded Tours" : "Featured Tours"}
+              {tours.length <= 1 ? "Featured Tour" : "Available Tours"}
             </Text>
             {tours.length > 0 && (
               <Text style={styles.tourCount}>
@@ -696,14 +671,6 @@ useEffect(() => {
             </View>
           </View>
 
-          {/* Storage Usage (if any offline content) */}
-          {offlineTours.length > 0 && (
-            <View style={styles.storageInfo}>
-              <Text style={styles.storageText}>
-                Offline storage: {formatStorageSize(totalStorageUsed)}
-              </Text>
-            </View>
-          )}
         </View>
 
         {/* Bottom Padding */}
@@ -736,24 +703,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#FF9800",
     textAlign: "center",
-  },
-  // Data source indicator
-  dataSourceIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: "rgba(255, 152, 0, 0.1)",
-    marginHorizontal: 20,
-    marginTop: 10,
-    borderRadius: 20,
-  },
-  dataSourceText: {
-    marginLeft: 8,
-    fontSize: 14,
-    color: "#FF9800",
-    fontWeight: "600",
   },
   errorContainer: {
     flex: 1,
@@ -1022,18 +971,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#666",
     textAlign: "center",
-  },
-  storageInfo: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: "#f0f0f0",
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  storageText: {
-    fontSize: 14,
-    color: "#666",
-    fontWeight: "500",
   },
   bottomPadding: {
     height: 20,

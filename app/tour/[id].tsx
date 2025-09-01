@@ -15,6 +15,8 @@ import {
   View,
 } from "react-native";
 import PaymentSheet from "../../components/payment/PaymentSheet";
+import { useFavorites } from "../../contexts/FavoritesContext";
+import { useNotifications } from "../../contexts/NotificationContext";
 import { useOffline } from "../../contexts/OfflineContext";
 import { usePurchases } from "../../contexts/PurchaseContext";
 import { getImageUrl, getTourById } from "../../services/tourServices";
@@ -24,6 +26,7 @@ import { ERROR_MESSAGES } from "../../utils/constants";
 export default function TourDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth(); 
+  const { sendTourDownloadedNotification } = useNotifications();
   
   // Tour state
   const [tour, setTour] = useState<Tour | null>(null);
@@ -38,6 +41,7 @@ export default function TourDetailScreen() {
   const [showPaymentSheet, setShowPaymentSheet] = useState(false);
 
   const { hasPurchased, addPurchase } = usePurchases();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const {
     isTourOffline,
     downloadTour,
@@ -315,6 +319,11 @@ export default function TourDetailScreen() {
     try {
       const success = await downloadTour(id as string);
       if (success) {
+        // Send push notification for download completion
+        if (tour) {
+          await sendTourDownloadedNotification(tour.title);
+        }
+        
         Alert.alert("Download Complete", "Tour is now available offline!");
         // Reload image URLs to get offline versions
         await loadImageUrls();
@@ -477,28 +486,62 @@ export default function TourDetailScreen() {
             )}
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.purchaseButton,
-              isPurchased && styles.purchaseButtonPurchased,
-              !isOnline && !isPurchased && styles.purchaseButtonDisabled, // NEW: Disable when offline
-            ]}
-            onPress={handlePurchase}
-            disabled={!isOnline && !isPurchased} // NEW: Disable purchase when offline
-          >
-            <Text style={[
-              styles.purchaseButtonText,
-              !isOnline && !isPurchased && styles.purchaseButtonTextDisabled
-            ]}>
-              {isPurchased ? "Start Tour" : !isOnline ? "Internet Required" : "Purchase Tour"}
-            </Text>
-            <Ionicons
-              name={isPurchased ? "play" : !isOnline ? "wifi-outline" : "card-outline"}
-              size={20}
-              color={!isOnline && !isPurchased ? "#999" : "#fff"}
-              style={{ marginLeft: 8 }}
-            />
-          </TouchableOpacity>
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity
+              style={[
+                styles.purchaseButton,
+                isPurchased && styles.purchaseButtonPurchased,
+                !isOnline && !isPurchased && styles.purchaseButtonDisabled, // NEW: Disable when offline
+              ]}
+              onPress={handlePurchase}
+              disabled={!isOnline && !isPurchased} // NEW: Disable purchase when offline
+            >
+              <Text style={[
+                styles.purchaseButtonText,
+                !isOnline && !isPurchased && styles.purchaseButtonTextDisabled
+              ]}>
+                {isPurchased ? "Start Tour" : !isOnline ? "Internet Required" : "Purchase Tour"}
+              </Text>
+              <Ionicons
+                name={isPurchased ? "play" : !isOnline ? "wifi-outline" : "card-outline"}
+                size={20}
+                color={!isOnline && !isPurchased ? "#999" : "#fff"}
+                style={{ marginLeft: 8 }}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.favoriteButton,
+                isFavorite(id as string) && styles.favoriteButtonActive
+              ]}
+              onPress={async () => {
+                if (!user) {
+                  Alert.alert('Sign In Required', 'Please sign in to add favorites.');
+                  return;
+                }
+                
+                if (!id) {
+                  Alert.alert('Error', 'Invalid tour ID.');
+                  return;
+                }
+                
+                try {
+                  await toggleFavorite(id as string);
+                } catch (error) {
+                  console.error('Favorites error:', error);
+                  const message = error instanceof Error ? error.message : 'Failed to update favorites. Please try again.';
+                  Alert.alert('Error', message);
+                }
+              }}
+            >
+              <Ionicons
+                name={isFavorite(id as string) ? "heart" : "heart-outline"}
+                size={24}
+                color={isFavorite(id as string) ? "#fff" : "#5CC4C4"}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Features List (for unpurchased tours) */}
@@ -804,6 +847,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+    flex: 1,
+    justifyContent: 'center',
   },
   purchaseButtonPurchased: {
     backgroundColor: "#4CAF50",
@@ -812,6 +857,30 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "bold",
     fontSize: 16,
+  },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  favoriteButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#5CC4C4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  favoriteButtonActive: {
+    backgroundColor: '#5CC4C4',
+    borderColor: '#5CC4C4',
   },
   featuresContainer: {
     backgroundColor: "#fff",

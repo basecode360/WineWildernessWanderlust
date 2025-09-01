@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import { useAuth } from "../../../contexts/AuthContext";
+import { useNotifications } from "../../../contexts/NotificationContext";
 import { useOffline } from "../../../contexts/OfflineContext";
 import { useProgress } from "../../../contexts/ProgressContext";
 import { LocationService } from "../../../services/LocationService";
@@ -64,10 +65,20 @@ export default function TourPlayerScreen() {
     refreshProgress,
   } = useProgress();
 
+  const { 
+    sendTourCompletionNotification,
+    sendLocationNotification,
+    sendLocationPermissionReminder,
+    settings: notificationSettings
+  } = useNotifications();
+
   const { getOfflineTour, getOfflineAudioPath, getOfflineImagePath, isOnline } = useOffline();
 
   // ADDED: State for tracking completed stops
   const [completedStops, setCompletedStops] = useState<Set<string>>(new Set());
+  
+  // ADDED: Prevent duplicate completion processing
+  const processingCompletionRef = useRef<Set<string>>(new Set());
   const [completionStats, setCompletionStats] = useState({ completed: 0, total: 0, percentage: 0 });
 
   const [tour, setTour] = useState<Tour | null>(null);
@@ -99,7 +110,7 @@ export default function TourPlayerScreen() {
   const audioLockRef = useRef(false);
   const audioRef = useRef<Audio.Sound | null>(null);
   const locationService = useRef(LocationService.getInstance());
-  const autoPlayTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoPlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Proximity trigger guards (session-scoped)
   const isTriggeringRef = useRef(false);
@@ -251,7 +262,7 @@ export default function TourPlayerScreen() {
           <View style={styles.warningTextContainer}>
             <Text style={styles.warningTitle}>Next Stop: {nextStop.title}</Text>
             <Text style={styles.warningText}>
-              You're {distance ? `${Math.round(distance)}m away` : 'not close enough'}. Move closer for auto-play.
+              You&apos;re {distance ? `${Math.round(distance)}m away` : 'not close enough'}. Move closer for auto-play.
             </Text>
           </View>
         </View>
@@ -325,6 +336,27 @@ export default function TourPlayerScreen() {
       triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }, 300);
   };
+
+  // Initialize audio session for iOS
+  useEffect(() => {
+    const initializeAudio = async () => {
+      try {
+        console.log('🎵 Initializing audio session for iOS...');
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          staysActiveInBackground: true,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+        console.log('✅ Audio session initialized successfully');
+      } catch (error) {
+        console.error('❌ Failed to initialize audio session:', error);
+      }
+    };
+
+    initializeAudio();
+  }, []);
 
   // Load tour data
   useEffect(() => {
@@ -401,7 +433,7 @@ export default function TourPlayerScreen() {
           price: data.price || 0,
           duration: data.duration || 0,
           distance: data.distance || 0,
-          image: data.image_path ? await getImageUrl(data.image_path, data.id, 'main') : '',
+          image: data.image_path ? await getImageUrl(data.image_path, data.id, 'main') : null,
           isPurchased: true,
           isDownloaded: false,
           stops: await Promise.all(
@@ -515,6 +547,9 @@ export default function TourPlayerScreen() {
         setIsLocationEnabled(true);
         console.log("Location permissions granted");
       } else {
+        // Send push notification reminder about location permission
+        await sendLocationPermissionReminder();
+        
         Alert.alert(
           "Location Permission Required",
           "This app needs location access to trigger audio at tour stops.",
@@ -566,7 +601,7 @@ export default function TourPlayerScreen() {
     }
   };
 
-  const checkProximityToStops = (location: LocationData) => {
+  const checkProximityToStops = async (location: LocationData) => {
     if (!tour) {
       console.log('No tour loaded yet; skipping proximity check');
       return;
@@ -641,8 +676,19 @@ export default function TourPlayerScreen() {
 
       console.log(`Location triggered: "${bestStop.title}" [${bestStop.id}] @ ${Math.round(bestDistance)}m`);
 
-      // Show location trigger toast
-      showToast(`Entering "${bestStop.title}" area - starting audio automatically`);
+      // Send location-based push notification
+      if (notificationSettings.locationBased) {
+        await sendLocationNotification(
+          `You're near "${bestStop.title}" - starting audio automatically`,
+          bestStop.title,
+          tour.title
+        );
+      }
+
+      // Also show in-app toast if in-app notifications are enabled
+      if (notificationSettings.inAppNotifications) {
+        showToast(`Entering "${bestStop.title}" area - starting audio automatically`);
+      }
 
       // Set triggering flag and trigger audio
       isTriggeringRef.current = true;
@@ -798,17 +844,37 @@ export default function TourPlayerScreen() {
         console.log(`🏁 Audio finished for stop: ${stopId} (index: ${currentStopIndex})`);
 
         try {
+          // Prevent duplicate completion processing
+          if (processingCompletionRef.current.has(stopId)) {
+            console.log(`⚠️ Already processing completion for stop ${stopId}, skipping`);
+            return;
+          }
+
           // Mark stop as completed
           if (!completedStops.has(stopId)) {
+            processingCompletionRef.current.add(stopId);
             console.log(`✅ Marking stop as completed: ${stopId} for tour: ${tour.id}`);
             await markStopCompleted(stopId, tour.id);
             console.log(`✅ Stop ${stopId} marked as completed in progress tracking`);
             await refreshCompletionData();
+            
+            // Send push notification for stop completion
+            const newCompletedCount = completedStops.size + 1;
+            await sendTourCompletionNotification(
+              tour.title,
+              newCompletedCount,
+              tour.stops.length
+            );
+            
+            // Remove from processing set after completion
+            processingCompletionRef.current.delete(stopId);
           } else {
             console.log(`ℹ️ Stop ${stopId} was already completed, skipping database insert`);
           }
         } catch (error) {
           console.error('❌ Error marking stop as completed:', error);
+          // Remove from processing set on error
+          processingCompletionRef.current.delete(stopId);
         }
 
         // Clean up current audio
@@ -841,7 +907,7 @@ export default function TourPlayerScreen() {
           startAutoPlayCountdown();
         } else if (!hasNextStop) {
           console.log("🎉 Tour completed - reached final stop!");
-          showTourCompletedMessage();
+          // Tour completed - only notification will be sent, no alert needed
         } else {
           console.log("⏹️ Auto-play disabled, staying on current stop");
         }
@@ -858,33 +924,7 @@ export default function TourPlayerScreen() {
     console.log("Auto-play cancelled");
   };
 
-  // FIXED: Show tour completed message with accurate progress stats
-  const showTourCompletedMessage = () => {
-    if (!tour) return;
-
-    const completionRate = completionStats.percentage;
-
-    Alert.alert(
-      "Tour Completed!",
-      `Congratulations! You've finished the entire tour with ${completionRate}% completion (${completionStats.completed}/${completionStats.total} stops). We hope you enjoyed the experience!`,
-      [
-        {
-          text: "Restart Tour",
-          onPress: () => {
-            setCurrentStopIndex(0);
-            setTour(prev => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                stops: prev.stops.map(stop => ({ ...stop, isPlayed: false }))
-              };
-            });
-          }
-        },
-        { text: "Finish", style: "default" }
-      ]
-    );
-  };
+  // Removed showTourCompletedMessage - using only push notifications now
 
   // Enhanced triggerAudioForStop with location parameter
   const triggerAudioForStop = async (stop: TourStop, index: number, triggeredByLocation: boolean = false) => {
@@ -934,10 +974,27 @@ export default function TourPlayerScreen() {
         }
 
         // create & play
-        const { sound } = await Audio.Sound.createAsync(
+        console.log('🎵 Loading audio from URI:', audioUri);
+        console.log('🎵 URI type:', typeof audioUri);
+        
+        const { sound, status } = await Audio.Sound.createAsync(
           { uri: audioUri },
-          { shouldPlay: true, volume: 1.0, isLooping: false }
+          { 
+            shouldPlay: true, 
+            volume: 1.0, 
+            isLooping: false,
+            progressUpdateIntervalMillis: 1000,
+            positionMillis: 0
+          }
         );
+
+        console.log('🎵 Audio loaded, initial status:', status);
+        
+        if (!status.isLoaded) {
+          console.error('❌ Audio failed to load properly');
+          Alert.alert("Audio Error", `Audio failed to load for: ${stop.title}`);
+          return;
+        }
 
         audioRef.current = sound;
         setupAudioPlaybackListener(sound, stop.id);
@@ -1003,7 +1060,9 @@ export default function TourPlayerScreen() {
 
         if (!status.isLoaded) {
           console.log("⚠️ Audio not loaded, restarting playback");
-          await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
+          if (tour && tour.stops[currentStopIndex]) {
+            await triggerAudioForStop(tour.stops[currentStopIndex], currentStopIndex, false);
+          }
           return;
         }
 
@@ -1617,7 +1676,7 @@ export default function TourPlayerScreen() {
               <Text style={styles.summaryTitle}>Tour Progress</Text>
             </View>
             <Text style={styles.summaryText}>
-              Great progress! You've completed {completionStats.completed} out of {completionStats.total} stops ({completionStats.percentage}%).
+              Great progress! You&apos;ve completed {completionStats.completed} out of {completionStats.total} stops ({completionStats.percentage}%).
             </Text>
             {locationAutoPlayEnabled && (
               <Text style={styles.locationHelpText}>
@@ -1626,7 +1685,7 @@ export default function TourPlayerScreen() {
             )}
             {completionStats.percentage === 100 && (
               <Text style={styles.congratsText}>
-                Congratulations! You've completed the entire tour!
+                Congratulations! You&apos;ve completed the entire tour!
               </Text>
             )}
           </View>

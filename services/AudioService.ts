@@ -16,6 +16,7 @@ export class AudioService {
 
   async initializeAudio(): Promise<void> {
     try {
+      console.log('🎵 AudioService: Initializing audio session...');
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         staysActiveInBackground: true,
@@ -23,8 +24,10 @@ export class AudioService {
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
       });
+      console.log('✅ AudioService: Audio session initialized successfully');
     } catch (error) {
-      console.error('Error initializing audio:', error);
+      console.error('❌ AudioService: Error initializing audio:', error);
+      throw error;
     }
   }
 

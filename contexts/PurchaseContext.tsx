@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import { PaymentService } from '../services/PaymentService';
+import PurchaseHistoryService, { PurchaseHistoryItem } from '../services/PurchaseHistoryService';
 import { useAuth } from './AuthContext';
 
 interface PurchaseContextType {
@@ -16,8 +17,8 @@ interface PurchaseContextType {
   hasPurchased: (tourId: string) => boolean;
   addPurchase: (tourId: string) => void;
   refreshPurchases: () => Promise<void>;
-  purchaseHistory: any[];
-  clearAllData: () => void; // Add this method
+  purchaseHistory: PurchaseHistoryItem[];
+  clearAllData: () => void;
 }
 
 const PurchaseContext = createContext<PurchaseContextType | undefined>(
@@ -30,13 +31,14 @@ interface PurchaseProviderProps {
 
 export function PurchaseProvider({ children }: PurchaseProviderProps) {
   const [purchasedTours, setPurchasedTours] = useState<string[]>([]);
-  const [purchaseHistory, setPurchaseHistory] = useState<any[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseHistoryItem[]>([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   
   // Track the current user ID to detect user changes
   const currentUserIdRef = useRef<string | null>(null);
   const { user } = useAuth();
   const paymentService = PaymentService.getInstance();
+  const purchaseHistoryService = PurchaseHistoryService.getInstance();
 
   // Handle user changes and logout
   useEffect(() => {
@@ -99,7 +101,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
       // Load both purchased tour IDs and full purchase history
       const [tourIds, history] = await Promise.all([
         paymentService.getUserPurchases(true), // Force fresh data
-        paymentService.getPurchaseHistory(),
+        purchaseHistoryService.getUserPurchaseHistory(user.id),
       ]);
 
       console.log('PurchaseContext: Loaded purchases:', {

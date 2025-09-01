@@ -4,7 +4,10 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 import { AuthProvider } from '../contexts/AuthContext';
+import { FavoritesProvider } from '../contexts/FavoritesContext';
+import { NotificationProvider } from '../contexts/NotificationContext';
 import { OfflineProvider } from '../contexts/OfflineContext';
+import { ProfileProvider } from '../contexts/ProfileContext';
 import { ProgressProvider } from '../contexts/ProgressContext';
 import { PurchaseProvider } from '../contexts/PurchaseContext';
 import IOSBackButton from '../components/IOSBackButton';
@@ -21,9 +24,12 @@ export default function RootLayout() {
       urlScheme="wine-wilderness-wanderlust"
     >
       <AuthProvider>
-        <PurchaseProvider>
-          <OfflineProvider>
-             <ProgressProvider> 
+        <ProfileProvider>
+          <FavoritesProvider>
+            <NotificationProvider>
+              <PurchaseProvider>
+                <OfflineProvider>
+                   <ProgressProvider> 
             <StatusBar style="light" backgroundColor="#5CC4C4" />
             <Stack
               screenOptions={{
@@ -80,7 +86,7 @@ export default function RootLayout() {
                 name="tour/[id]"
                 options={{
                   title: 'Tour Details',
-                  presentation: 'card',
+                  presentation: Platform.OS === 'ios' ? 'modal' : 'card',
                   headerLeft: Platform.OS === 'ios' 
                     ? () => <IOSBackButton title="Tours" />
                     : undefined,
@@ -111,10 +117,52 @@ export default function RootLayout() {
                     : undefined,
                 }}
               />
+
+              {/* Notification Settings - Modal presentation */}
+              <Stack.Screen
+                name="notification-settings"
+                options={{
+                  headerShown: true,
+                  presentation: 'modal',
+                  title: 'Notification Settings',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Profile" />
+                    : undefined,
+                }}
+              />
+
+              {/* Purchase History - Modal presentation */}
+              <Stack.Screen
+                name="purchase-history"
+                options={{
+                  headerShown: true,
+                  presentation: 'modal',
+                  title: 'Purchase History',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Profile" />
+                    : undefined,
+                }}
+              />
+
+              {/* Favorites - Modal presentation */}
+              <Stack.Screen
+                name="favorites"
+                options={{
+                  headerShown: true,
+                  presentation: 'modal',
+                  title: 'Favorites',
+                  headerLeft: Platform.OS === 'ios' 
+                    ? () => <IOSBackButton title="Profile" />
+                    : undefined,
+                }}
+              />
             </Stack>
-             </ProgressProvider> 
-          </OfflineProvider>
-        </PurchaseProvider>
+                 </ProgressProvider> 
+                </OfflineProvider>
+              </PurchaseProvider>
+            </NotificationProvider>
+          </FavoritesProvider>
+        </ProfileProvider>
       </AuthProvider>
     </StripeProvider>
   );

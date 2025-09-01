@@ -29,7 +29,7 @@ export interface Tour {
   price: number;
   duration: string;
   distance: string;
-  image: string;
+  image: string | null;
   isPurchased: boolean;
   isDownloaded: boolean;
   stops: TourStop[];

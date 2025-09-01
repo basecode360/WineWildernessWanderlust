@@ -12,13 +12,19 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { useFavorites } from '../../contexts/FavoritesContext';
+import { useNotifications } from '../../contexts/NotificationContext';
 import { useOffline } from '../../contexts/OfflineContext';
+import { useProfile } from '../../contexts/ProfileContext';
 import { usePurchases } from '../../contexts/PurchaseContext';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
+  const { profile } = useProfile();
+  const { settings: notificationSettings } = useNotifications();
   const { purchasedTours } = usePurchases();
   const { offlineTours, totalStorageUsed, formatStorageSize } = useOffline();
+  const { favoriteCount } = useFavorites();
 
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -39,6 +45,18 @@ export default function ProfileScreen() {
 
   const handleOfflineDownloads = () => {
     router.push('/offline-downloads');
+  };
+
+  const handleNotificationSettings = () => {
+    router.push('/notification-settings');
+  };
+
+  const handlePurchaseHistory = () => {
+    router.push('/purchase-history');
+  };
+
+  const handleFavorites = () => {
+    router.push('/favorites');
   };
 
   const formatDate = (dateString: string) => {
@@ -64,22 +82,21 @@ export default function ProfileScreen() {
       icon: 'card-outline',
       title: 'Purchase History',
       subtitle: 'View your tour purchases',
-      onPress: () =>
-        Alert.alert('Coming Soon', 'Purchase history feature coming soon!'),
+      onPress: handlePurchaseHistory,
     },
     {
       icon: 'heart-outline',
       title: 'Favorites',
-      subtitle: 'Your saved tours',
-      onPress: () =>
-        Alert.alert('Coming Soon', 'Favorites feature coming soon!'),
+      subtitle: `${favoriteCount} saved tours`,
+      onPress: handleFavorites,
     },
     {
       icon: 'notifications-outline',
       title: 'Notifications',
-      subtitle: 'Manage your preferences',
-      onPress: () =>
-        Alert.alert('Coming Soon', 'Notification settings coming soon!'),
+      subtitle: notificationSettings.pushNotifications 
+        ? 'Notifications enabled'
+        : 'Notifications disabled',
+      onPress: handleNotificationSettings,
     },
     {
       icon: 'settings-outline',
@@ -106,19 +123,20 @@ export default function ProfileScreen() {
             <View style={styles.avatar}>
               <Ionicons name="person" size={40} color="#5CC4C4" />
             </View>
-            <TouchableOpacity style={styles.editAvatarButton}>
-              <Ionicons name="camera" size={16} color="#fff" />
-            </TouchableOpacity>
           </View>
 
           <Text style={styles.name}>
-            {user?.user_metadata?.full_name || 'Tour Explorer'}
+            {profile?.full_name || user?.user_metadata?.full_name || 'Tour Explorer'}
           </Text>
-          <Text style={styles.email}>{user?.email}</Text>
+          <Text style={styles.email}>{profile?.email || user?.email}</Text>
 
-          {user?.created_at && (
+          {profile?.bio && (
+            <Text style={styles.bio}>{profile.bio}</Text>
+          )}
+
+          {profile?.created_at && (
             <Text style={styles.memberSince}>
-              Member since {formatDate(user.created_at)}
+              Member since {formatDate(profile.created_at)}
             </Text>
           )}
         </View>
@@ -132,17 +150,15 @@ export default function ProfileScreen() {
           </View>
 
           <View style={styles.statCard}>
-            <Ionicons name="download" size={24} color="#5CC4C4" />
-            <Text style={styles.statNumber}>{offlineTours.length}</Text>
-            <Text style={styles.statLabel}>Downloaded</Text>
+            <Ionicons name="heart" size={24} color="#5CC4C4" />
+            <Text style={styles.statNumber}>{favoriteCount}</Text>
+            <Text style={styles.statLabel}>Favorites</Text>
           </View>
 
           <View style={styles.statCard}>
-            <Ionicons name="phone-portrait" size={24} color="#5CC4C4" />
-            <Text style={styles.statNumber}>
-              {formatStorageSize(totalStorageUsed)}
-            </Text>
-            <Text style={styles.statLabel}>Storage Used</Text>
+            <Ionicons name="download" size={24} color="#5CC4C4" />
+            <Text style={styles.statNumber}>{offlineTours.length}</Text>
+            <Text style={styles.statLabel}>Downloaded</Text>
           </View>
         </View>
 
@@ -240,19 +256,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  editAvatarButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#5CC4C4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
   name: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -263,6 +266,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     marginBottom: 8,
+  },
+  bio: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
   memberSince: {
     fontSize: 14,
