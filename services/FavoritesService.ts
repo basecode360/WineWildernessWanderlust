@@ -6,6 +6,8 @@ import { supabase } from '../lib/supabase';
 // - user_id (uuid, foreign key to auth.users)
 // - tour_id (text, supports string IDs like "acadia_lobster_tour")
 // - created_at (timestamp with time zone)
+//
+// MIGRATION NEEDED: ALTER TABLE user_favorites ALTER COLUMN tour_id TYPE text;
 
 export interface FavoriteItem {
   id: string;
@@ -61,7 +63,7 @@ class FavoritesService {
       // Fetch tour details separately
       const { data: tourData, error: tourError } = await supabase
         .from('tours')
-        .select('id, title, image')
+        .select('id, title, image_path')
         .in('id', tourIds);
 
       if (tourError) {
@@ -75,7 +77,7 @@ class FavoritesService {
         tourData.forEach(tour => {
           tourDetailsMap[tour.id] = {
             title: tour.title,
-            image: tour.image,
+            image: tour.image_path,
           };
         });
       }
