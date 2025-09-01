@@ -2,6 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {widthPercentageToDP as wp, heightPercentageToDP as hp} from 'react-native-responsive-screen';
 import { Tour } from '../types/tour';
 
 interface TourCardProps {
@@ -84,8 +85,8 @@ export default function TourCard({ tour, onPress, onPurchase }: TourCardProps) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#fff',
-    borderRadius: 15,
-    marginBottom: 16,
+    borderRadius: wp('4%'),
+    marginBottom: hp('2%'),
     overflow: 'hidden',
     elevation: 3,
     shadowColor: '#000',
@@ -94,7 +95,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   imageContainer: {
-    height: 180,
+    height: hp('23%'),
     position: 'relative',
   },
   imagePlaceholder: {
@@ -104,60 +105,60 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   imageEmoji: {
-    fontSize: 48,
+    fontSize: wp('12%'),
   },
   badges: {
     position: 'absolute',
-    top: 12,
-    right: 12,
+    top: hp('1.5%'),
+    right: wp('3%'),
     flexDirection: 'column',
-    gap: 6,
+    gap: hp('0.7%'),
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(76, 175, 80, 0.9)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: wp('2%'),
+    paddingVertical: hp('0.5%'),
+    borderRadius: wp('3%'),
   },
   downloadedBadge: {
     backgroundColor: 'rgba(33, 150, 243, 0.9)',
   },
   badgeText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: wp('3%'),
     fontWeight: '600',
-    marginLeft: 4,
+    marginLeft: wp('1%'),
   },
   content: {
-    padding: 16,
+    padding: wp('4%'),
   },
   title: {
-    fontSize: 18,
+    fontSize: wp('4.5%'),
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   description: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#666',
-    lineHeight: 20,
-    marginBottom: 12,
+    lineHeight: wp('5%'),
+    marginBottom: hp('1.5%'),
   },
   meta: {
     flexDirection: 'row',
-    marginBottom: 16,
-    gap: 16,
+    marginBottom: hp('2%'),
+    gap: wp('4%'),
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   metaText: {
-    fontSize: 12,
+    fontSize: wp('3%'),
     color: '#666',
-    marginLeft: 4,
+    marginLeft: wp('1%'),
   },
   footer: {
     flexDirection: 'row',
@@ -165,7 +166,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   price: {
-    fontSize: 24,
+    fontSize: wp('6%'),
     fontWeight: 'bold',
     color: '#5CC4C4',
   },
@@ -175,26 +176,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#5CC4C4',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('5%'),
   },
   purchaseButtonText: {
     color: '#5CC4C4',
     fontWeight: '600',
-    marginLeft: 6,
+    marginLeft: wp('1.5%'),
+    fontSize: wp('3.5%'),
   },
   playButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#4CAF50',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: hp('1%'),
+    paddingHorizontal: wp('4%'),
+    borderRadius: wp('5%'),
   },
   playButtonText: {
     color: '#fff',
     fontWeight: '600',
-    marginLeft: 6,
+    marginLeft: wp('1.5%'),
+    fontSize: wp('3.5%'),
   },
 });

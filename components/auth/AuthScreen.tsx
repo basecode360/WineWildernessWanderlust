@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import {widthPercentageToDP as wp, heightPercentageToDP as hp} from 'react-native-responsive-screen';
 import { useAuth } from '../../contexts/AuthContext';
 
 type AuthMode = 'signin' | 'signup' | 'forgot';
@@ -267,27 +268,27 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: 20,
+    padding: wp('5%'),
   },
   header: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: hp('5%'),
   },
   title: {
-    fontSize: 28,
+    fontSize: wp('7%'),
     fontWeight: 'bold',
     color: '#333',
-    marginBottom: 8,
+    marginBottom: hp('1%'),
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: wp('4%'),
     color: '#666',
     textAlign: 'center',
   },
   form: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: wp('4%'),
+    padding: wp('6%'),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -299,18 +300,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#e1e5e9',
-    borderRadius: 12,
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    borderRadius: wp('3%'),
+    marginBottom: hp('2%'),
+    paddingHorizontal: wp('4%'),
     backgroundColor: '#f8f9fa',
   },
   inputIcon: {
-    marginRight: 12,
+    marginRight: wp('3%'),
   },
   input: {
     flex: 1,
-    height: 50,
-    fontSize: 16,
+    height: hp('6%'),
+    fontSize: wp('4%'),
     color: '#333',
   },
   eyeIcon: {
@@ -318,35 +319,35 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     backgroundColor: '#5CC4C4',
-    borderRadius: 12,
-    height: 50,
+    borderRadius: wp('3%'),
+    height: hp('6%'),
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: hp('1%'),
   },
   submitButtonDisabled: {
     backgroundColor: '#a0a0a0',
   },
   submitButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: wp('4%'),
     fontWeight: '600',
   },
   footer: {
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: hp('3%'),
   },
   signupPrompt: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
+    marginTop: hp('2%'),
   },
   footerText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#666',
   },
   linkText: {
-    fontSize: 14,
+    fontSize: wp('3.5%'),
     color: '#5CC4C4',
     fontWeight: '600',
   },
