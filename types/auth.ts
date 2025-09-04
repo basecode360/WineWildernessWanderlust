@@ -5,6 +5,8 @@ export interface User {
   user_metadata?: {
     full_name?: string;
     avatar_url?: string;
+    terms_accepted?: boolean;
+    terms_accepted_at?: string;
   };
   created_at: string;
   email_confirmed_at?: string;
@@ -39,6 +41,7 @@ export interface SignUpCredentials {
   email: string;
   password: string;
   fullName?: string;
+  acceptedTerms?: boolean;
 }
 
 export interface AuthResponse {
@@ -78,7 +81,8 @@ export interface AuthContextType extends AuthState {
   signUp: (
     email: string,
     password: string,
-    fullName?: string
+    fullName?: string,
+    acceptedTerms?: boolean
   ) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error: AuthError | null }>;

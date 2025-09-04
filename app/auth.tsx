@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import TermsAndConditionsModal from '../components/auth/TermsAndConditionsModal';
 
 type AuthMode = 'signin' | 'signup' | 'forgot';
 
@@ -26,6 +27,8 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   const { signIn, signUp, resetPassword, user } = useAuth();
 
@@ -82,7 +85,13 @@ export default function AuthScreen() {
           return;
         }
 
-        const { error } = await signUp(email, password, fullName);
+        if (!acceptedTerms) {
+          Alert.alert('Error', 'Please accept the Terms and Conditions to continue');
+          setLoading(false);
+          return;
+        }
+
+        const { error } = await signUp(email, password, fullName, acceptedTerms);
 
         if (error) {
           Alert.alert('Sign Up Error', error.message);
@@ -239,23 +248,44 @@ export default function AuthScreen() {
             )}
 
             {mode === 'signup' && (
-              <View style={styles.inputContainer}>
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Confirm Password"
-                  value={confirmPassword}
-                  onChangeText={setConfirmPassword}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  placeholderTextColor="#999"
-                />
-              </View>
+              <>
+                <View style={styles.inputContainer}>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={20}
+                    color="#666"
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Confirm Password"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                <View style={styles.termsContainer}>
+                  <TouchableOpacity
+                    style={styles.checkboxContainer}
+                    onPress={() => setAcceptedTerms(!acceptedTerms)}
+                  >
+                    <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
+                      {acceptedTerms && (
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                  <View style={styles.termsTextContainer}>
+                    <Text style={styles.termsText}>I agree to the </Text>
+                    <TouchableOpacity onPress={() => setShowTermsModal(true)}>
+                      <Text style={styles.termsLink}>Terms and Conditions</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
             )}
 
             <TouchableOpacity
@@ -310,6 +340,12 @@ export default function AuthScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <TermsAndConditionsModal
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        onAccept={() => setAcceptedTerms(true)}
+      />
     </SafeAreaView>
   );
 }
@@ -416,5 +452,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#5CC4C4',
     fontWeight: '600',
+  },
+  termsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  checkboxContainer: {
+    marginRight: 12,
+    marginTop: 2,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#e1e5e9',
+    borderRadius: 4,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#5CC4C4',
+    borderColor: '#5CC4C4',
+  },
+  termsTextContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    flex: 1,
+    alignItems: 'center',
+  },
+  termsText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  termsLink: {
+    fontSize: 14,
+    color: '#5CC4C4',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });

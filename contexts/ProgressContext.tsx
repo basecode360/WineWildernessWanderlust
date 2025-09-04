@@ -32,10 +32,8 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   // Load progress when user signs in or component mounts
   useEffect(() => {
     if (user) {
-      console.log(`ProgressContext: User logged in, initializing progress for ${user.id}`);
       initializeProgress();
     } else {
-      console.log('ProgressContext: No user, clearing progress state');
       // Clear progress when user signs out
       setCompletedStops([]);
       setTotalVisitedPlaces(0);
@@ -46,14 +44,11 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   // Initialize progress for logged in user
   const initializeProgress = async () => {
     if (!user) {
-      console.warn('Cannot initialize progress: no user');
       return;
     }
 
     setIsLoading(true);
     try {
-      console.log(`Initializing progress for user: ${user.id}`);
-      
       // Sync progress from server and local storage
       await progressService.syncProgressOnLogin(user.id);
       
@@ -62,8 +57,6 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
       
       // Load completed count
       await refreshCompletedCount();
-      
-      console.log('Progress initialization completed');
     } catch (error) {
       console.error('Error initializing progress:', error);
     } finally {
@@ -84,8 +77,6 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
 
       setCompletedStops(stops);
       setTotalVisitedPlaces(totalCount);
-
-      console.log(`Loaded ${stops.length} completed stops for user ${user.id}`);
     } catch (error) {
       console.error("Error loading progress:", error);
     } finally {
@@ -100,7 +91,6 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
     try {
       const count = await progressService.getTotalCompletedCount(user.id);
       setCompletedCount(count);
-      console.log('Updated completed count:', count);
     } catch (error) {
       console.error('Error refreshing completed count:', error);
     }
@@ -115,25 +105,21 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
       (stop.tourId ? stop.tourId === tourId : true)
     );
     
-    console.log(`Checking completion for stop ${stopId} in tour ${tourId}: ${isCompleted}`);
     return isCompleted;
   }, [completedStops]);
 
   // FIXED: Mark stop as completed with correct parameter order
   const markStopCompleted = useCallback(async (stopId: string, tourId?: string) => {
     if (!user) {
-      console.warn('Cannot mark stop completed: user not authenticated');
       return;
     }
 
     // FIXED: Check completion with correct parameter order
     if (isStopCompleted(tourId || '', stopId)) {
-      console.log(`Stop ${stopId} in tour ${tourId} is already completed`);
       return;
     }
 
     try {
-      console.log(`ProgressContext: Marking stop ${stopId} as completed for user ${user.id}`);
       
       // Call service with correct parameter order (userId, stopId, tourId, isOnline)
       await progressService.markStopCompleted(user.id, stopId, tourId, isOnline);
@@ -158,10 +144,8 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
         await loadProgress();
       }, 1000);
       
-      console.log(`ProgressContext: Stop ${stopId} marked as completed successfully`);
-      
     } catch (error) {
-      console.error('ProgressContext: Error marking stop completed:', error);
+      console.error('Error marking stop completed:', error);
       // Reload progress to ensure consistency
       await loadProgress();
       await refreshCompletedCount();
@@ -173,20 +157,17 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
     const tourCompletions = completedStops.filter(stop => 
       stop.tourId === tourId || (!stop.tourId && tourId) // Handle cases where tourId might be missing
     );
-    console.log(`Tour ${tourId} has ${tourCompletions.length} completed stops`);
     return tourCompletions;
   }, [completedStops]);
 
   // Refresh progress with better error handling
   const refreshProgress = useCallback(async () => {
     if (!user) {
-      console.warn('Cannot refresh progress: no user');
       return;
     }
     
     try {
       setIsLoading(true);
-      console.log(`Refreshing progress for user: ${user.id}`);
       
       // Use service refresh method
       await progressService.refreshProgress(user.id);
@@ -194,8 +175,6 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
       // Reload local state
       await loadProgress();
       await refreshCompletedCount();
-      
-      console.log('Progress refresh completed');
     } catch (error) {
       console.error('Error refreshing progress:', error);
     } finally {
@@ -206,12 +185,10 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   // Clear all progress for current user
   const clearAllProgress = useCallback(async () => {
     if (!user) {
-      console.warn('Cannot clear progress: no user');
       return;
     }
 
     try {
-      console.log(`Clearing all progress for user: ${user.id}`);
       
       await progressService.clearAllProgress(user.id);
       
@@ -219,7 +196,6 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
       setTotalVisitedPlaces(0);
       setCompletedCount(0);
       
-      console.log('All progress cleared successfully');
     } catch (error) {
       console.error('Error clearing progress:', error);
     }
@@ -228,24 +204,20 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   // Sync progress (for manual sync button)
   const syncProgress = useCallback(async () => {
     if (!user) {
-      console.warn('Cannot sync progress: no user');
       return;
     }
     
     if (!isOnline) {
-      console.log('Cannot sync progress: offline');
       return;
     }
     
     try {
       setIsLoading(true);
-      console.log(`Syncing progress for user: ${user.id}`);
       
       await progressService.syncProgressOnLogin(user.id);
       await loadProgress();
       await refreshCompletedCount();
       
-      console.log('Progress synced successfully');
     } catch (error) {
       console.error('Error syncing progress:', error);
     } finally {
@@ -256,7 +228,6 @@ export function ProgressProvider({ children }: { children: React.ReactNode }) {
   // Get total completed count wrapper
   const getTotalCompletedCount = useCallback(async (userId: string) => {
     if (!user) {
-      console.warn("Cannot get total count: no user");
       return 0;
     }
     try {

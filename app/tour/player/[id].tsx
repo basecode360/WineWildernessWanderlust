@@ -29,7 +29,7 @@ import { calculateDistance, getAudioUrl, getImageUrl } from "../../../services/t
 import { AudioState, LocationData, Tour, TourStop } from "../../../types/tour";
 
 const { width: screenWidth } = Dimensions.get("window");
-const PROXIMITY_THRESHOLD = 100;
+const PROXIMITY_THRESHOLD = 10; // Changed from 100m to 10m for precise triggering
 
 // Helper function to ensure coordinates are valid
 const ensureValidCoordinates = (lat?: number | null, lng?: number | null) => {
@@ -104,6 +104,7 @@ export default function TourPlayerScreen() {
   // Location-based auto-play settings
   const [locationAutoPlayEnabled, setLocationAutoPlayEnabled] = useState(true);
   const [lastTriggeredStopId, setLastTriggeredStopId] = useState<string | null>(null);
+  const [triggeredStopsThisSession, setTriggeredStopsThisSession] = useState<Set<string>>(new Set());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showLocationWarning, setShowLocationWarning] = useState(false);
 
@@ -185,8 +186,6 @@ export default function TourPlayerScreen() {
     if (!tour || !user) return;
 
     try {
-      console.log('Loading completion data for tour:', tour.id);
-
       // Get completed stops for this specific tour
       const completed = await getCompletedStopsForTour(tour.id);
       const completedStopIds = new Set(completed.map(stop => stop.stopId));
@@ -200,9 +199,6 @@ export default function TourPlayerScreen() {
         percentage: tour.stops.length > 0 ? Math.round((completed.length / tour.stops.length) * 100) : 0
       };
       setCompletionStats(stats);
-
-      console.log(`Loaded completion data: ${completed.length}/${tour.stops.length} stops completed`);
-      console.log('Completed stop IDs:', Array.from(completedStopIds));
     } catch (error) {
       console.error('Error loading completion data:', error);
       // Set empty state on error
@@ -213,7 +209,6 @@ export default function TourPlayerScreen() {
 
   // FIXED: Refresh completion data after marking a stop complete
   const refreshCompletionData = useCallback(async () => {
-    console.log('Refreshing completion data...');
     await refreshProgress(); // Refresh the progress context first
     await loadCompletionData(); // Then reload our local completion data
   }, [refreshProgress, loadCompletionData]);
@@ -312,7 +307,6 @@ export default function TourPlayerScreen() {
   };
 
   const showToast = (message: string) => {
-    console.log(`Toast: ${message}`);
     setToastMessage(message);
   };
 
@@ -324,10 +318,10 @@ export default function TourPlayerScreen() {
   const forcePlayNextStop = () => {
     if (!tour || currentStopIndex >= tour.stops.length - 1) return;
 
-    console.log('Force playing next stop (overriding location requirement)');
     cancelAutoPlay();
     hideToast();
     setShowLocationWarning(false);
+    setTriggeredStopsThisSession(new Set());
 
     const nextIndex = currentStopIndex + 1;
     setCurrentStopIndex(nextIndex);
@@ -341,7 +335,6 @@ export default function TourPlayerScreen() {
   useEffect(() => {
     const initializeAudio = async () => {
       try {
-        console.log('🎵 Initializing audio session for iOS...');
         await Audio.setAudioModeAsync({
           allowsRecordingIOS: false,
           staysActiveInBackground: true,
@@ -349,9 +342,8 @@ export default function TourPlayerScreen() {
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
         });
-        console.log('✅ Audio session initialized successfully');
       } catch (error) {
-        console.error('❌ Failed to initialize audio session:', error);
+        console.error('Failed to initialize audio session:', error);
       }
     };
 
@@ -371,7 +363,6 @@ export default function TourPlayerScreen() {
   }, [tour, user, loadCompletionData]);
 
   const loadTour = async (tourId: string) => {
-    console.log("Loading tour:", tourId, "Online:", isOnline);
     try {
       setIsLoadingTour(true);
       setTourError(null);
@@ -379,20 +370,17 @@ export default function TourPlayerScreen() {
       // Check offline first
       const offlineTour = getOfflineTour(tourId);
       if (offlineTour) {
-        console.log("Found offline tour");
         const sortedOfflineTour = {
           ...offlineTour.tourData,
           stops: offlineTour.tourData.stops.sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
         };
         setTour(sortedOfflineTour);
         setIsOfflineMode(true);
-        console.log(`Offline tour loaded: ${sortedOfflineTour.title} with ${sortedOfflineTour.stops.length} stops`);
         return;
       }
 
       // If not offline and online, fetch from Supabase
       if (isOnline) {
-        console.log("Fetching from Supabase...");
         const { data, error } = await supabase
           .from("tours")
           .select(`
@@ -475,19 +463,16 @@ export default function TourPlayerScreen() {
     if (!tour) return;
 
     const loadImages = async () => {
-      console.log("Loading images for", tour.stops.length, "stops");
       const imagesMap: Record<string, string> = {};
 
       // Load images sequentially to avoid race conditions
       for (const stop of tour.stops) {
         if (stop.image) {
           imagesMap[stop.id] = stop.image;
-          console.log(`Image set for stop ${stop.id}`);
         }
       }
 
       setStopImages(imagesMap);
-      console.log(`Loaded ${Object.keys(imagesMap).length}/${tour.stops.length} stop images`);
     };
 
     loadImages();
@@ -496,7 +481,6 @@ export default function TourPlayerScreen() {
   useEffect(() => {
     initializeLocation();
     return () => {
-      console.log('Player cleanup: stopping tracking + unloading audio');
       locationService.current.stopTracking();
       audioRef.current?.unloadAsync();
 
@@ -523,8 +507,6 @@ export default function TourPlayerScreen() {
       }, 1000);
       return () => clearTimeout(timer);
     } else if (autoPlayCountdown === 0 && autoPlayTimerRef.current && tour) {
-      console.log(`Countdown reached 0, advancing from stop ${currentStopIndex} to ${currentStopIndex + 1}`);
-
       if (currentStopIndex < tour.stops.length - 1) {
         const nextIndex = currentStopIndex + 1;
         setCurrentStopIndex(nextIndex);
@@ -545,7 +527,6 @@ export default function TourPlayerScreen() {
       const hasPermission = await locationService.current.requestPermissions();
       if (hasPermission) {
         setIsLocationEnabled(true);
-        console.log("Location permissions granted");
       } else {
         // Send push notification reminder about location permission
         await sendLocationPermissionReminder();
@@ -566,7 +547,6 @@ export default function TourPlayerScreen() {
       const success = await locationService.current.startTracking(
         (location) => {
           setCurrentLocation(location);
-          console.log(`Location updated: ${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`);
 
           // Only check proximity if location auto-play is enabled
           if (locationAutoPlayEnabled) {
@@ -582,14 +562,11 @@ export default function TourPlayerScreen() {
       );
 
       if (!success) {
-        console.warn("Failed to start location tracking");
         Alert.alert(
           "Location Tracking Failed",
           "Unable to start location tracking. Location-based audio triggers won't work.",
           [{ text: "OK" }]
         );
-      } else {
-        console.log("Location tracking started successfully");
       }
     } catch (error) {
       console.error("Error starting location tracking:", error);
@@ -603,18 +580,15 @@ export default function TourPlayerScreen() {
 
   const checkProximityToStops = async (location: LocationData) => {
     if (!tour) {
-      console.log('No tour loaded yet; skipping proximity check');
       return;
     }
 
     // Skip if location-based auto-play is disabled
     if (!locationAutoPlayEnabled) {
-      console.log('Location auto-play is disabled');
       return;
     }
 
     if (isTriggeringRef.current) {
-      console.log('Already triggering a stop; skipping this tick');
       return;
     }
 
@@ -622,13 +596,11 @@ export default function TourPlayerScreen() {
     if (showLocationWarning && currentStopIndex < tour.stops.length - 1) {
       const nextStop = tour.stops[currentStopIndex + 1];
       if (isUserNearStop(location, nextStop)) {
-        console.log('User moved closer to next stop, clearing warning');
         setShowLocationWarning(false);
         hideToast();
 
         // If auto-play is enabled and we were waiting, start countdown now
         if (isAutoPlayEnabled && !audioRef.current) {
-          console.log('User is now close enough, starting delayed auto-play countdown');
           startAutoPlayCountdown();
         }
       }
@@ -668,18 +640,15 @@ export default function TourPlayerScreen() {
     }
 
     if (bestStop && bestIndex >= 0) {
-      // Prevent re-triggering the same stop repeatedly
-      if (lastTriggeredStopId === bestStop.id) {
-        console.log(`Stop "${bestStop.title}" already triggered recently, skipping`);
+      // Prevent re-triggering any stop that has already been triggered this session
+      if (triggeredStopsThisSession.has(bestStop.id)) {
         return;
       }
-
-      console.log(`Location triggered: "${bestStop.title}" [${bestStop.id}] @ ${Math.round(bestDistance)}m`);
 
       // Send location-based push notification
       if (notificationSettings.locationBased) {
         await sendLocationNotification(
-          `You're near "${bestStop.title}" - starting audio automatically`,
+          `You're at "${bestStop.title}" - starting audio automatically`,
           bestStop.title,
           tour.title
         );
@@ -687,50 +656,28 @@ export default function TourPlayerScreen() {
 
       // Also show in-app toast if in-app notifications are enabled
       if (notificationSettings.inAppNotifications) {
-        showToast(`Entering "${bestStop.title}" area - starting audio automatically`);
+        showToast(`Reached "${bestStop.title}" - starting audio automatically`);
       }
 
-      // Set triggering flag and trigger audio
+      // Set triggering flag and mark as triggered for this session
       isTriggeringRef.current = true;
       setLastTriggeredStopId(bestStop.id);
+      setTriggeredStopsThisSession(prev => new Set([...prev, bestStop.id]));
 
       triggerAudioForStop(bestStop, bestIndex, true) // true = triggered by location
         .catch((e) => {
-          console.warn('Location-triggered audio failed:', e);
+          console.error('Location-triggered audio failed:', e);
           showToast(`Could not play audio for "${bestStop.title}"`);
-          setLastTriggeredStopId(null);
+          // Don't remove from triggered stops - keep it to prevent retries
         })
         .finally(() => {
           isTriggeringRef.current = false;
         });
-    } else {
-      // Reset last triggered stop if we're far from all stops
-      if (lastTriggeredStopId) {
-        const lastTriggeredStop = tour.stops.find(s => s.id === lastTriggeredStopId);
-        if (lastTriggeredStop) {
-          const triggerCoords = lastTriggeredStop.triggerCoordinates || lastTriggeredStop.coordinates;
-          if (triggerCoords) {
-            const distanceFromLast = calculateDistance(
-              location.latitude,
-              location.longitude,
-              triggerCoords.lat,
-              triggerCoords.lng
-            );
-
-            // Reset if we're far enough from the last triggered stop
-            if (distanceFromLast > PROXIMITY_THRESHOLD * 2) {
-              console.log(`Far enough from last triggered stop, resetting trigger lock`);
-              setLastTriggeredStopId(null);
-            }
-          }
-        }
-      }
     }
   };
 
   // Enhanced stop current audio function
   const stopCurrentAudio = async (preserveLock: boolean = false) => {
-    console.log("🛑 Stopping current audio - audioLockRef:", audioLockRef.current);
 
     if (audioRef.current) {
       try {
@@ -740,17 +687,14 @@ export default function TourPlayerScreen() {
         } catch { }
 
         const status = await audioRef.current.getStatusAsync();
-        console.log("Audio status before stop:", status.isLoaded ? "loaded" : "not loaded");
 
         if (status.isLoaded) {
           await audioRef.current.stopAsync();
-          console.log("✅ Audio stopped successfully");
         }
 
         await audioRef.current.unloadAsync();
-        console.log("✅ Audio unloaded successfully");
       } catch (error) {
-        console.warn("⚠️ Error stopping/unloading audio:", error);
+        console.warn("Error stopping/unloading audio:", error);
       }
       audioRef.current = null;
     }
@@ -772,9 +716,6 @@ export default function TourPlayerScreen() {
 
     if (!preserveLock) {
       audioLockRef.current = false;
-      console.log("🔓 Audio lock released");
-    } else {
-      console.log("🔒 Lock preserved for outer operation");
     }
   };
 
@@ -1170,6 +1111,8 @@ export default function TourPlayerScreen() {
     // Cancel auto-play when user manually selects a stop
     cancelAutoPlay();
     setLastTriggeredStopId(null);
+    // Clear session triggers when user manually navigates - allows location triggers to work again
+    setTriggeredStopsThisSession(new Set());
 
     // If this is the currently selected stop
     if (index === currentStopIndex) {
@@ -1198,6 +1141,7 @@ export default function TourPlayerScreen() {
     if (!tour) return;
     if (currentStopIndex > 0) {
       cancelAutoPlay();
+      setTriggeredStopsThisSession(new Set()); // Clear session triggers on navigation
       const nextIndex = currentStopIndex - 1;
       triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }
@@ -1207,6 +1151,7 @@ export default function TourPlayerScreen() {
     if (!tour) return;
     if (currentStopIndex < tour.stops.length - 1) {
       cancelAutoPlay();
+      setTriggeredStopsThisSession(new Set()); // Clear session triggers on navigation
       const nextIndex = currentStopIndex + 1;
       triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }

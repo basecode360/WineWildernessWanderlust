@@ -17,13 +17,10 @@ export class LocationService {
 
   async requestPermissions(): Promise<boolean> {
     try {
-      console.log('📍 Requesting location permissions...');
-      
       // Check current permission status first
       const { status: existingStatus } = await Location.getForegroundPermissionsAsync();
       
       if (existingStatus === 'granted') {
-        console.log('✅ Location permissions already granted');
         return true;
       }
 
@@ -31,32 +28,26 @@ export class LocationService {
       const { status } = await Location.requestForegroundPermissionsAsync();
       
       if (status === 'granted') {
-        console.log('✅ Location permissions granted');
         return true;
       } else {
-        console.warn('⚠️ Location permissions denied');
         return false;
       }
     } catch (error) {
-      console.error('❌ Error requesting location permissions:', error);
+      console.error('Error requesting location permissions:', error);
       return false;
     }
   }
 
   async getCurrentLocation(): Promise<LocationData | null> {
     try {
-      console.log('📍 Getting current location...');
-      
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
-        console.warn('⚠️ No location permissions');
         return null;
       }
 
       // Check if location services are enabled
       const isEnabled = await Location.hasServicesEnabledAsync();
       if (!isEnabled) {
-        console.warn('⚠️ Location services are disabled');
         return null;
       }
 
@@ -73,11 +64,10 @@ export class LocationService {
         timestamp: location.timestamp,
       };
 
-      console.log(`📍 Current location: ${locationData.latitude}, ${locationData.longitude} (±${locationData.accuracy}m)`);
       return locationData;
 
     } catch (error) {
-      console.error('❌ Error getting current location:', error);
+      console.error('Error getting current location:', error);
       return null;
     }
   }
@@ -92,22 +82,17 @@ export class LocationService {
   ): Promise<boolean> {
     try {
       if (this.isTracking) {
-        console.log('📍 Location tracking already active');
         return true;
       }
 
-      console.log('📍 Starting location tracking...');
-      
       const hasPermission = await this.requestPermissions();
       if (!hasPermission) {
-        console.warn('⚠️ Cannot start tracking without permissions');
         return false;
       }
 
       // Check if location services are enabled
       const isEnabled = await Location.hasServicesEnabledAsync();
       if (!isEnabled) {
-        console.warn('⚠️ Location services are disabled');
         return false;
       }
 
@@ -137,18 +122,15 @@ export class LocationService {
           // Only update if we have reasonable accuracy (less than 50 meters)
           if (locationData.accuracy <= 50) {
             this.onLocationUpdate?.(locationData);
-          } else {
-            console.warn(`⚠️ Poor location accuracy: ${locationData.accuracy}m`);
           }
         }
       );
 
       this.isTracking = true;
-      console.log('✅ Location tracking started successfully');
       return true;
 
     } catch (error) {
-      console.error('❌ Error starting location tracking:', error);
+      console.error('Error starting location tracking:', error);
       this.isTracking = false;
       return false;
     }
@@ -156,8 +138,6 @@ export class LocationService {
 
   stopTracking(): void {
     try {
-      console.log('📍 Stopping location tracking...');
-      
       if (this.subscription) {
         this.subscription.remove();
         this.subscription = null;
@@ -165,10 +145,8 @@ export class LocationService {
       
       this.onLocationUpdate = null;
       this.isTracking = false;
-      
-      console.log('✅ Location tracking stopped');
     } catch (error) {
-      console.error('❌ Error stopping location tracking:', error);
+      console.error('Error stopping location tracking:', error);
     }
   }
 
@@ -188,7 +166,6 @@ export class LocationService {
       typeof lat2 !== 'number' || typeof lon2 !== 'number' ||
       isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)
     ) {
-      console.warn('⚠️ Invalid coordinates for distance calculation');
       return Infinity;
     }
 
@@ -197,7 +174,6 @@ export class LocationService {
       Math.abs(lat1) > 90 || Math.abs(lat2) > 90 ||
       Math.abs(lon1) > 180 || Math.abs(lon2) > 180
     ) {
-      console.warn('⚠️ Coordinates out of valid range');
       return Infinity;
     }
 
@@ -214,9 +190,6 @@ export class LocationService {
 
     const distance = R * c; // Distance in meters
     
-    // Log distance for debugging
-    console.log(`📏 Distance calculated: ${distance.toFixed(2)}m between (${lat1}, ${lon1}) and (${lat2}, ${lon2})`);
-    
     return distance;
   }
 
@@ -228,7 +201,6 @@ export class LocationService {
     try {
       // Validate inputs
       if (!userLocation || !targetLocation) {
-        console.warn('⚠️ Invalid location data for proximity check');
         return false;
       }
 
@@ -241,13 +213,9 @@ export class LocationService {
 
       const isNearby = distance <= threshold;
       
-      if (isNearby) {
-        console.log(`🎯 Within proximity! Distance: ${distance.toFixed(2)}m (threshold: ${threshold}m)`);
-      }
-      
       return isNearby;
     } catch (error) {
-      console.error('❌ Error checking proximity:', error);
+      console.error('Error checking proximity:', error);
       return false;
     }
   }
@@ -259,8 +227,6 @@ export class LocationService {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        console.log(`📍 Getting location (attempt ${attempt}/${maxAttempts})...`);
-        
         const location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
           timeout: 10000,
@@ -282,7 +248,6 @@ export class LocationService {
 
         // If we get very accurate reading, use it immediately
         if (locationData.accuracy <= 10) {
-          console.log(`📍 Excellent accuracy achieved: ${locationData.accuracy}m`);
           break;
         }
 
@@ -292,17 +257,10 @@ export class LocationService {
         }
 
       } catch (error) {
-        console.warn(`⚠️ Location attempt ${attempt} failed:`, error);
-        
         if (attempt === maxAttempts && !bestLocation) {
-          console.error('❌ All location attempts failed');
           return null;
         }
       }
-    }
-
-    if (bestLocation) {
-      console.log(`📍 Best location: ${bestLocation.latitude}, ${bestLocation.longitude} (±${bestLocation.accuracy}m)`);
     }
 
     return bestLocation;
@@ -325,7 +283,7 @@ export class LocationService {
         canUseLocation: hasPermission && isEnabled,
       };
     } catch (error) {
-      console.error('❌ Error checking location services status:', error);
+      console.error('Error checking location services status:', error);
       return {
         hasPermission: false,
         isEnabled: false,

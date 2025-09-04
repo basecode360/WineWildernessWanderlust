@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import {widthPercentageToDP as wp, heightPercentageToDP as hp} from 'react-native-responsive-screen';
 import { useAuth } from '../../contexts/AuthContext';
+import TermsAndConditionsModal from './TermsAndConditionsModal';
 
 type AuthMode = 'signin' | 'signup' | 'forgot';
 
@@ -24,6 +25,8 @@ export default function AuthScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   const { signIn, signUp, resetPassword } = useAuth();
 
@@ -62,7 +65,13 @@ export default function AuthScreen() {
           return;
         }
 
-        const { error } = await signUp(email, password, fullName);
+        if (!acceptedTerms) {
+          Alert.alert('Error', 'Please accept the Terms and Conditions to continue');
+          setLoading(false);
+          return;
+        }
+
+        const { error } = await signUp(email, password, fullName, acceptedTerms);
         if (error) {
           Alert.alert('Sign Up Error', error.message);
         } else {
@@ -86,6 +95,20 @@ export default function AuthScreen() {
     }
 
     setLoading(false);
+  };
+
+  const resetForm = () => {
+    setEmail('');
+    setPassword('');
+    setFullName('');
+    setConfirmPassword('');
+    setAcceptedTerms(false);
+    setShowTermsModal(false);
+  };
+
+  const handleModeChange = (newMode: AuthMode) => {
+    setMode(newMode);
+    resetForm();
   };
 
   const getTitle = () => {
@@ -192,22 +215,43 @@ export default function AuthScreen() {
           )}
 
           {mode === 'signup' && (
-            <View style={styles.inputContainer}>
-              <Ionicons
-                name="lock-closed-outline"
-                size={20}
-                color="#666"
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Confirm Password"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-              />
-            </View>
+            <>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={20}
+                  color="#666"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Confirm Password"
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.termsContainer}>
+                <TouchableOpacity
+                  style={styles.checkboxContainer}
+                  onPress={() => setAcceptedTerms(!acceptedTerms)}
+                >
+                  <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
+                    {acceptedTerms && (
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                    )}
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.termsTextContainer}>
+                  <Text style={styles.termsText}>I agree to the </Text>
+                  <TouchableOpacity onPress={() => setShowTermsModal(true)}>
+                    <Text style={styles.termsLink}>Terms and Conditions</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
           )}
 
           <TouchableOpacity
@@ -226,13 +270,13 @@ export default function AuthScreen() {
           <View style={styles.footer}>
             {mode === 'signin' && (
               <>
-                <TouchableOpacity onPress={() => setMode('forgot')}>
+                <TouchableOpacity onPress={() => handleModeChange('forgot')}>
                   <Text style={styles.linkText}>Forgot your password?</Text>
                 </TouchableOpacity>
 
                 <View style={styles.signupPrompt}>
-                  <Text style={styles.footerText}>Don't have an account? </Text>
-                  <TouchableOpacity onPress={() => setMode('signup')}>
+                  <Text style={styles.footerText}>Don&apos;t have an account? </Text>
+                  <TouchableOpacity onPress={() => handleModeChange('signup')}>
                     <Text style={styles.linkText}>Sign up</Text>
                   </TouchableOpacity>
                 </View>
@@ -242,20 +286,26 @@ export default function AuthScreen() {
             {mode === 'signup' && (
               <View style={styles.signupPrompt}>
                 <Text style={styles.footerText}>Already have an account? </Text>
-                <TouchableOpacity onPress={() => setMode('signin')}>
+                <TouchableOpacity onPress={() => handleModeChange('signin')}>
                   <Text style={styles.linkText}>Sign in</Text>
                 </TouchableOpacity>
               </View>
             )}
 
             {mode === 'forgot' && (
-              <TouchableOpacity onPress={() => setMode('signin')}>
+              <TouchableOpacity onPress={() => handleModeChange('signin')}>
                 <Text style={styles.linkText}>Back to sign in</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
       </ScrollView>
+
+      <TermsAndConditionsModal
+        visible={showTermsModal}
+        onClose={() => setShowTermsModal(false)}
+        onAccept={() => setAcceptedTerms(true)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -350,5 +400,45 @@ const styles = StyleSheet.create({
     fontSize: wp('3.5%'),
     color: '#5CC4C4',
     fontWeight: '600',
+  },
+  termsContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: hp('2%'),
+    paddingHorizontal: wp('1%'),
+  },
+  checkboxContainer: {
+    marginRight: wp('3%'),
+    marginTop: wp('0.5%'),
+  },
+  checkbox: {
+    width: wp('5%'),
+    height: wp('5%'),
+    borderWidth: 2,
+    borderColor: '#e1e5e9',
+    borderRadius: wp('1%'),
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#5CC4C4',
+    borderColor: '#5CC4C4',
+  },
+  termsTextContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    flex: 1,
+    alignItems: 'center',
+  },
+  termsText: {
+    fontSize: wp('3.5%'),
+    color: '#666',
+  },
+  termsLink: {
+    fontSize: wp('3.5%'),
+    color: '#5CC4C4',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });

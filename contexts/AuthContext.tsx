@@ -72,9 +72,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const signUp = async (email: string, password: string, fullName?: string) => {
+  const signUp = async (email: string, password: string, fullName?: string, acceptedTerms?: boolean) => {
     try {
       setLoading(true);
+
+      // Validate terms acceptance
+      if (!acceptedTerms) {
+        return { error: { message: 'You must accept the Terms and Conditions to create an account' } };
+      }
 
       const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
@@ -82,6 +87,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         options: {
           data: {
             full_name: fullName?.trim(),
+            terms_accepted: true,
+            terms_accepted_at: new Date().toISOString(),
           },
         },
       });
