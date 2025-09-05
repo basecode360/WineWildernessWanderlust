@@ -68,7 +68,7 @@ export const STORAGE = {
 // UPDATED: API configuration with Supabase
 export const API = {
   // Keep your existing API for other services
-  BASE_URL: 'https://api.winewildernesswanderlust.com',
+  BASE_URL: 'https://api.WanderGuideAudioTours.com',
   ENDPOINTS: {
     tours: '/tours',
     audio: '/audio',
@@ -77,7 +77,8 @@ export const API = {
   },
   // ADD: Supabase configuration (REQUIRED for services/tourService.ts)
   SUPABASE: {
-    STORAGE_URL: 'https://ibgfliafcsbmyiktekjp.supabase.co/storage/v1/object/public',
+    STORAGE_URL:
+      'https://ibgfliafcsbmyiktekjp.supabase.co/storage/v1/object/public',
     BUCKETS: {
       TOUR_IMAGES: 'tour_images',
       TOUR_AUDIO: 'tour_audio',

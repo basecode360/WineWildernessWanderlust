@@ -93,7 +93,7 @@ export default function ProfileScreen() {
     {
       icon: 'notifications-outline',
       title: 'Notifications',
-      subtitle: notificationSettings.pushNotifications 
+      subtitle: notificationSettings.pushNotifications
         ? 'Notifications enabled'
         : 'Notifications disabled',
       onPress: handleNotificationSettings,
@@ -126,13 +126,13 @@ export default function ProfileScreen() {
           </View>
 
           <Text style={styles.name}>
-            {profile?.full_name || user?.user_metadata?.full_name || 'Tour Explorer'}
+            {profile?.full_name ||
+              user?.user_metadata?.full_name ||
+              'Tour Explorer'}
           </Text>
           <Text style={styles.email}>{profile?.email || user?.email}</Text>
 
-          {profile?.bio && (
-            <Text style={styles.bio}>{profile.bio}</Text>
-          )}
+          {profile?.bio && <Text style={styles.bio}>{profile.bio}</Text>}
 
           {profile?.created_at && (
             <Text style={styles.memberSince}>
@@ -222,9 +222,7 @@ export default function ProfileScreen() {
 
         {/* App Version */}
         <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>
-            Wine Wilderness Wanderlust v1.0.0
-          </Text>
+          <Text style={styles.versionText}>WanderGuide Audio Tours v1.0.0</Text>
         </View>
 
         {/* Bottom Padding */}

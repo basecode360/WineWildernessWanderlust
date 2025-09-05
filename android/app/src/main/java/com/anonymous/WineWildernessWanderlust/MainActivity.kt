@@ -1,4 +1,4 @@
-package com.anonymous.WineWildernessWanderlust
+package com.anonymous.WanderGuideAudioTours
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

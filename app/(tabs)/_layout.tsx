@@ -75,7 +75,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Tours',
-          headerTitle: 'Wine Wilderness Wanderlust',
+          headerTitle: 'WanderGuide Audio Tours',
           tabBarIcon: ({ color }) => <TabBarIcon name="map" color={color} />,
         }}
       />

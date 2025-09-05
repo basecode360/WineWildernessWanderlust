@@ -39,7 +39,7 @@ export default function PaymentSheet({
       setIsProcessing(true);
 
       // Step 1: Create payment intent
-      
+
       const paymentResponse = await paymentService.createPaymentIntent(
         tourId,
         price
@@ -59,7 +59,7 @@ export default function PaymentSheet({
 
       // Step 2: Initialize payment sheet
       const { error: initError } = await initPaymentSheet({
-        merchantDisplayName: 'Wine Wilderness Wanderlust',
+        merchantDisplayName: 'WanderGuide Audio Tours',
         paymentIntentClientSecret: client_secret,
         allowsDelayedPaymentMethods: false,
         defaultBillingDetails: {

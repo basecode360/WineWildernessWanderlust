@@ -124,7 +124,7 @@ export default function NotFoundScreen() {
       {/* Bottom Info */}
       <View style={styles.bottomInfo}>
         <Text style={styles.bottomText}>
-          Wine Wilderness Wanderlust • Error 404
+          WanderGuide Audio Tours • Error 404
         </Text>
       </View>
     </SafeAreaView>

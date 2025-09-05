@@ -9,8 +9,8 @@ import {
   View,
 } from 'react-native';
 import {
-  widthPercentageToDP as wp,
   heightPercentageToDP as hp,
+  widthPercentageToDP as wp,
 } from 'react-native-responsive-screen';
 
 interface TermsAndConditionsModalProps {
@@ -67,7 +67,7 @@ export default function TermsAndConditionsModal({
           scrollEventThrottle={16}
         >
           <View style={styles.content}>
-            <Text style={styles.heading}>Wine Wilderness Wanderlust</Text>
+            <Text style={styles.heading}>WanderGuide Audio Tours</Text>
             <Text style={styles.heading}>Terms of Service</Text>
 
             <Text style={styles.lastUpdated}>
@@ -389,7 +389,7 @@ export default function TermsAndConditionsModal({
             </Text>
             <Text style={styles.contactInfo}>
               Wander Guide Audio Tours (WanderGuide){'\n'}
-              Email: hello@winewildernesswanderlust.com
+              Email: hello@WanderGuideAudioTours.com
             </Text>
 
             <Text style={styles.lastUpdatedBottom}>

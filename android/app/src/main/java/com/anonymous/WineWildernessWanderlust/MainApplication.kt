@@ -1,4 +1,4 @@
-package com.anonymous.WineWildernessWanderlust
+package com.anonymous.WanderGuideAudioTours
 
 import android.app.Application
 import android.content.res.Configuration
