@@ -33,7 +33,7 @@ import {
 import { AudioState, LocationData, Tour, TourStop } from '../../../types/tour';
 
 const { width: screenWidth } = Dimensions.get('window');
-const PROXIMITY_THRESHOLD = 2; // Must be very close to the location to trigger
+const PROXIMITY_THRESHOLD = 0.5; // Must be essentially at the exact location to trigger
 
 // Helper function to ensure coordinates are valid
 const ensureValidCoordinates = (lat?: number | null, lng?: number | null) => {
