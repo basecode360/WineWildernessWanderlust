@@ -25,7 +25,7 @@ export default function NotificationSettingsScreen() {
     try {
       setIsSaving(true);
       await updateSettings({ [key]: value });
-      console.log(`✅ Updated ${key} to ${value}`);
+      // Updated notification setting
     } catch (error) {
       console.error(`❌ Failed to update ${key}:`, error);
       // Revert the local change

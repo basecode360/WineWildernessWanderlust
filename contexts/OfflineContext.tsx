@@ -65,7 +65,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
   // Monitor network connectivity
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      console.log(`Network status changed: ${state.isConnected ? 'Online' : 'Offline'}`);
+      // Network status changed
       setIsOnline(state.isConnected ?? false);
     });
 
@@ -90,11 +90,11 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
     setIsLoadingOffline(true);
 
     try {
-      console.log(`Loading offline content for user: ${user.id}`);
+      // Loading offline content for user
 
       // FIXED: Use user-specific method
       const offlineContent = await offlineService.getAllOfflineToursForUser(user.id);
-      console.log(`Found ${offlineContent.length} offline tours for user ${user.id}`);
+      // Found offline tours for user
 
       setOfflineTours(offlineContent);
 
@@ -139,7 +139,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
       }
 
       try {
-        console.log(`Starting download for tour: ${tourId}`);
+        // Starting download for tour
 
         // Fetch tour data from Supabase
         const tour = await getTourById(tourId);
@@ -150,7 +150,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
 
         // Check if already downloaded
         if (isTourOffline(tourId)) {
-          console.log(`Tour ${tourId} already offline`);
+          // Tour already offline
           return true;
         }
 
@@ -169,7 +169,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
         ].filter(Boolean).length;
         const totalItems = audioFiles + imageFiles;
 
-        console.log(`Total items to download: ${totalItems}`);
+        // Total items to download
 
         // Initialize progress with correct values
         setDownloadProgress(prev => {
@@ -198,7 +198,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
             // Check for cancellation
             const isCancelled = downloadCancellationTokens.get(tourId);
             if (isCancelled) {
-              console.log(`Download cancelled for tour ${tourId}`);
+              // Download cancelled for tour
               return;
             }
 
@@ -232,7 +232,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
             return newMap;
           });
 
-          console.log(`Tour ${tourId} downloaded successfully`);
+          // Tour downloaded successfully
 
           // Remove progress after delay
           setTimeout(() => {
@@ -290,12 +290,12 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
       }
 
       try {
-        console.log(`Removing offline tour ${tourId}`);
+        // Removing offline tour
 
         // FIXED: Use user-specific removal method
         await offlineService.removeTourForUser(user.id, tourId);
 
-        console.log(`Tour ${tourId} removed from offline storage`);
+        // Tour removed from offline storage
 
         // Refresh offline content
         await loadOfflineContent();
@@ -309,7 +309,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
 
   const cancelDownload = useCallback(async (tourId: string): Promise<void> => {
     try {
-      console.log(`Cancelling download for tour ${tourId}`);
+      // Cancelling download for tour
 
       // Set cancellation token
       setDownloadCancellationTokens(prev => {
@@ -383,7 +383,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
   );
 
   const refreshOfflineContent = useCallback(async (): Promise<void> => {
-    console.log('Refreshing offline content...');
+    // Refreshing offline content
     await loadOfflineContent();
   }, [loadOfflineContent]);
 
@@ -393,7 +393,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
     }
 
     try {
-      console.log('Clearing all offline content...');
+      // Clearing all offline content
 
       // FIXED: Use user-specific clear method
       await offlineService.clearAllOfflineContentForUser(user.id);
@@ -404,7 +404,7 @@ export function OfflineProvider({ children }: OfflineProviderProps) {
       setDownloadProgress(new Map());
       setDownloadCancellationTokens(new Map());
 
-      console.log('All offline content cleared');
+      // All offline content cleared
     } catch (error) {
       console.error('Error clearing offline content:', error);
       throw error;

@@ -80,7 +80,7 @@ export const getImageUrl = async (
   if (tourId && imageKey && userId) {
     const offlinePath = await offlineService.getOfflineImagePath(tourId, imageKey, userId);
     if (offlinePath) {
-      console.log("🖼️ Using offline image:", offlinePath);
+      // Using offline image
       return `file://${offlinePath}`;
     }
   }
@@ -90,7 +90,7 @@ export const getImageUrl = async (
   
   const baseUrl = BASE_URL?.replace(/\/$/, "");
   const url = `${baseUrl}/storage/v1/object/public/${TOUR_IMAGES_BUCKET}/${imagePath}`;
-  console.log("🖼️ Using online image URL:", url);
+  // Using online image URL
   return url;
 };
 
@@ -109,7 +109,7 @@ export const getAudioUrl = async (
   if (tourId && stopId && userId) {
     const offlinePath = await offlineService.getOfflineAudioPath(tourId, stopId, userId);
     if (offlinePath) {
-      console.log("🎧 Using offline audio:", offlinePath);
+      // Using offline audio
       return `file://${offlinePath}`;
     }
   }
@@ -120,7 +120,7 @@ export const getAudioUrl = async (
     
     const baseUrl = BASE_URL?.replace(/\/$/, "");
     const url = `${baseUrl}/storage/v1/object/public/${TOUR_AUDIO_BUCKET}/${audioPath}`;
-    console.log("🎧 Using online audio URL:", url);
+    // Using online audio URL
     return url;
   }
 
@@ -133,7 +133,7 @@ export const getAllTours = async (userId?: string): Promise<Tour[]> => {
   const offlineService = getOfflineService();
   const networkAvailable = await isNetworkAvailable();
 
-  console.log(`🔍 Getting all tours (network: ${networkAvailable})`);
+  // Getting all tours
 
   try {
     let offlineTours: any[] = [];
@@ -143,7 +143,7 @@ export const getAllTours = async (userId?: string): Promise<Tour[]> => {
       offlineTours = await offlineService.getAllOfflineToursForUser(userId);
       
       if (offlineTours.length > 0) {
-        console.log(`📱 Found ${offlineTours.length} offline tours for user ${userId}`);
+        // Found offline tours for user
         
         // Transform offline tours to the expected format
         const transformedTours = await Promise.all(
@@ -220,7 +220,7 @@ export const getTourById = async (tourId: string, userId?: string): Promise<Tour
   const offlineService = getOfflineService();
   const networkAvailable = await isNetworkAvailable();
 
-  console.log(`🔍 Getting tour ${tourId} (network: ${networkAvailable})`);
+  // Getting tour
 
   try {
     // Try offline first (only if userId provided)
@@ -228,7 +228,7 @@ export const getTourById = async (tourId: string, userId?: string): Promise<Tour
       const offlineContent = await offlineService.getOfflineContentForUser(tourId, userId);
       
       if (offlineContent) {
-        console.log(`📱 Found offline tour: ${tourId} for user ${userId}`);
+        // Found offline tour for user
         
         // Transform offline tour to expected format
         const tour = offlineContent.tourData;
@@ -261,7 +261,7 @@ export const getTourById = async (tourId: string, userId?: string): Promise<Tour
 
     // Not available offline, try online
     if (networkAvailable) {
-      console.log(`🌐 Fetching tour ${tourId} online`);
+      // Fetching tour online
       return await fetchTourFromSupabase(tourId, userId);
     }
 
@@ -277,7 +277,7 @@ export const getTourById = async (tourId: string, userId?: string): Promise<Tour
 
 // FIXED: Fetch tours from Supabase (online only) with user context
 const fetchToursFromSupabase = async (userId?: string): Promise<Tour[]> => {
-  console.log('🌐 Fetching tours from Supabase');
+  // Fetching tours from Supabase
   
   const { data: tours, error } = await supabase
     .from("tours")
@@ -307,7 +307,7 @@ const fetchToursFromSupabase = async (userId?: string): Promise<Tour[]> => {
 
 // FIXED: Fetch single tour from Supabase (online only) with user context
 const fetchTourFromSupabase = async (tourId: string, userId?: string): Promise<Tour | null> => {
-  console.log(`🌐 Fetching tour ${tourId} from Supabase`);
+  // Fetching tour from Supabase
   
   const { data: tour, error: tourError } = await supabase
     .from("tours")

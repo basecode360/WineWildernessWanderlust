@@ -64,7 +64,7 @@ export default function ToursScreen() {
     const loadAllTourImages = async () => {
       if (tours.length === 0 || !user) return;
 
-      console.log(`Loading images for ${tours.length} tours`);
+      // Loading images for tours
       const uris: Record<string, string> = {};
 
       for (const tour of tours) {
@@ -76,31 +76,30 @@ export default function ToursScreen() {
 
           if (isOffline) {
             // For offline tours, get the offline image path
-            console.log(`Getting offline image for tour: ${tour.id}`);
+            // Getting offline image for tour
             const offlineImagePath = await getOfflineImagePath(tour.id, 'main');
 
             if (offlineImagePath) {
               uris[tour.id] = offlineImagePath;
-              console.log(`Offline image loaded for tour ${tour.id}: ${offlineImagePath}`);
+              // Offline image loaded for tour
             } else {
-              console.warn(`No offline image found for tour ${tour.id}`);
               // Fallback to online image if offline image not found
               if (isOnline && tour.image) {
                 const onlineUri = await getImageUrl(tour.image, tour.id, 'main');
                 if (onlineUri) {
                   uris[tour.id] = onlineUri;
-                  console.log(`Fallback to online image for tour ${tour.id}`);
+                  // Fallback to online image for tour
                 }
               }
             }
           } else {
             // For online tours, get the online image
             if (tour.image) {
-              console.log(`Getting online image for tour: ${tour.id}`);
+              // Getting online image for tour
               const onlineUri = await getImageUrl(tour.image, tour.id, 'main');
               if (onlineUri) {
                 uris[tour.id] = onlineUri;
-                console.log(`Online image loaded for tour ${tour.id}`);
+                // Online image loaded for tour
               }
             }
           }
@@ -110,7 +109,7 @@ export default function ToursScreen() {
       }
 
       setImageUris(uris);
-      console.log(`Loaded ${Object.keys(uris).length}/${tours.length} tour images`);
+      // Tour images loaded
     };
 
     loadAllTourImages();
@@ -124,7 +123,6 @@ export default function ToursScreen() {
   // Watch for offline tours changes with proper dependency
   useEffect(() => {
     if (offlineTours.length > 0 && tours.length === 0 && !isLoadingTours) {
-      console.log("No online tours but found offline tours, using offline data");
       setDataSource("offline");
       setTours(
         offlineTours.map((content) => ({
@@ -141,11 +139,9 @@ export default function ToursScreen() {
     try {
       setIsLoadingTours(true);
       setToursError(null);
-      console.log("Loading tours with offline-first approach...");
 
       // First, always show offline tours if we have them (immediate response)
       if (offlineTours.length > 0 && !refreshing) {
-        console.log(`Showing ${offlineTours.length} offline tours immediately`);
         setTours(
           offlineTours.map((content) => ({
             ...content.tourData,
@@ -157,22 +153,18 @@ export default function ToursScreen() {
 
       // Then try to fetch online tours (if connected)
       if (isOnline) {
-        console.log("Network available, fetching latest tours from Supabase...");
 
         try {
           const onlineToursData = await getAllTours();
-          console.log(`Loaded ${onlineToursData.length} tours from Supabase`);
 
           // Merge online and offline tours
           const mergedTours = mergeToursData(onlineToursData, offlineTours);
           setTours(mergedTours);
           setDataSource(offlineTours.length > 0 ? "mixed" : "online");
         } catch (onlineError) {
-          console.warn("Failed to load online tours, keeping offline data:", onlineError);
 
           // If we have offline tours, keep using them
           if (offlineTours.length > 0) {
-            console.log("Using offline tours as fallback");
             setTours(
               offlineTours.map((content) => ({
                 ...content.tourData,
@@ -185,11 +177,9 @@ export default function ToursScreen() {
           }
         }
       } else {
-        console.log("No network connection");
 
         // If offline and we have cached tours, use them
         if (offlineTours.length > 0) {
-          console.log("Using offline tours (no network)");
           setTours(
             offlineTours.map((content) => ({
               ...content.tourData,
@@ -202,11 +192,9 @@ export default function ToursScreen() {
         }
       }
     } catch (error) {
-      console.error("Failed to load tours:", error);
 
       // If we have any offline tours, use them as last resort
       if (offlineTours.length > 0) {
-        console.log("Using offline tours as error fallback");
         setTours(
           offlineTours.map((content) => ({
             ...content.tourData,
@@ -304,32 +292,25 @@ useEffect(() => {
   const loadCompletedStops = async () => {
     if (user && !progressLoading) {
       try {
-        console.log('=== DEBUG: Loading completed stops ===');
-        console.log('Current user object:', user);
-        console.log('User ID being passed:', user.id);
-        console.log('User email:', user.email);
+        
         
         // Check if user.id exists and is valid
         if (!user.id) {
-          console.error('ERROR: user.id is null or undefined!');
           setTotalCompletedStops(0);
           return;
         }
         
         const count = await getTotalCompletedCount(user.id);
-        console.log('Returned count from getTotalCompletedCount:', count);
-        console.log('=== END DEBUG ===');
+        
         
         setTotalCompletedStops(count);
       } catch (error) {
-        console.error('Error loading completed stops count:', error);
         setTotalCompletedStops(0);
       }
     } else if (!user) {
-      console.log('No user logged in, resetting count to 0');
       setTotalCompletedStops(0);
     } else {
-      console.log('Progress still loading, waiting...');
+      // Progress still loading, waiting
     }
   };
 
@@ -485,7 +466,6 @@ useEffect(() => {
 
           {tours.map((tour) => {
             if (!tour || !tour.id) {
-              console.warn("Invalid tour data:", tour);
               return null;
             }
 
@@ -506,14 +486,10 @@ useEffect(() => {
                     style={styles.tourImage}
                     resizeMode="cover"
                     onError={(e) => {
-                      console.log(
-                        "Image load error for tour:",
-                        tour.id,
-                        e.nativeEvent.error
-                      );
+                      // Image load error for tour
                     }}
                     onLoad={() => {
-                      console.log("Image loaded for tour:", tour.id);
+                      // Image loaded for tour
                     }}
                   />
 

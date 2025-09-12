@@ -45,15 +45,11 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
     const userId = user?.id || null;
     const previousUserId = currentUserIdRef.current;
 
-    console.log('PurchaseContext: User change detected', {
-      previousUserId,
-      currentUserId: userId,
-      userEmail: user?.email
-    });
+    // User change detected
 
     // Case 1: User logged out
     if (!user || !userId) {
-      console.log('PurchaseContext: User logged out, clearing purchases');
+      // User logged out, clearing purchases
       setPurchasedTours([]);
       setPurchaseHistory([]);
       setIsLoadingPurchases(false);
@@ -66,7 +62,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
 
     // Case 2: User changed (different user logged in)
     if (previousUserId && previousUserId !== userId) {
-      console.log('PurchaseContext: Different user detected, clearing old data');
+      // Different user detected, clearing old data
       setPurchasedTours([]);
       setPurchaseHistory([]);
       setIsLoadingPurchases(false);
@@ -78,7 +74,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
     // Case 3: New user logged in or user changed
     if (userId !== previousUserId) {
       currentUserIdRef.current = userId;
-      console.log('PurchaseContext: Loading purchases for user:', userId);
+      // Loading purchases for user
       
       // Small delay to ensure state is cleared before loading new data
       setTimeout(() => {
@@ -90,11 +86,11 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
 
   const loadUserPurchases = async () => {
     if (!user?.id) {
-      console.log('PurchaseContext: No user, skipping purchase load');
+      // No user, skipping purchase load
       return;
     }
 
-    console.log('PurchaseContext: Loading purchases for user:', user.id);
+    // Loading purchases for user
     setIsLoadingPurchases(true);
 
     try {
@@ -104,11 +100,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
         purchaseHistoryService.getUserPurchaseHistory(user.id),
       ]);
 
-      console.log('PurchaseContext: Loaded purchases:', {
-        userId: user.id,
-        tourIds,
-        historyCount: history.length
-      });
+      // Purchases loaded successfully
 
       setPurchasedTours(tourIds);
       setPurchaseHistory(history);
@@ -125,13 +117,13 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   const hasPurchased = (tourId: string): boolean => {
     // Safety check - if no user is logged in, return false immediately
     if (!user?.id) {
-      console.log(`PurchaseContext: No user logged in, returning false for tour ${tourId}`);
+      // No user logged in
       return false;
     }
 
     // Safety check - if current user doesn't match the stored user, clear data first
     if (currentUserIdRef.current && currentUserIdRef.current !== user.id) {
-      console.log('PurchaseContext: User mismatch detected in hasPurchased, clearing data');
+      // User mismatch detected, clearing data
       setPurchasedTours([]);
       setPurchaseHistory([]);
       currentUserIdRef.current = user.id;
@@ -140,23 +132,17 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
 
     const purchased = purchasedTours.includes(tourId);
     
-    // Add debug logging
-    console.log(`PurchaseContext: hasPurchased(${tourId}) = ${purchased}`, {
-      userId: user.id,
-      currentUserIdRef: currentUserIdRef.current,
-      purchasedTours,
-      tourId
-    });
+    // Purchase check completed
     
     return purchased;
   };
 
   const addPurchase = (tourId: string) => {
-    console.log('PurchaseContext: Adding purchase for tour:', tourId);
+    // Adding purchase for tour
     setPurchasedTours((prev) => {
       if (!prev.includes(tourId)) {
         const newPurchases = [...prev, tourId];
-        console.log('PurchaseContext: Updated purchases:', newPurchases);
+        // Updated purchases
         return newPurchases;
       }
       return prev;
@@ -164,7 +150,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   };
 
   const refreshPurchases = async () => {
-    console.log('PurchaseContext: Manual refresh requested');
+    // Manual refresh requested
     
     // Clear PaymentService cache first
     paymentService.clearCache();
@@ -173,7 +159,7 @@ export function PurchaseProvider({ children }: PurchaseProviderProps) {
   };
 
   const clearAllData = () => {
-    console.log('PurchaseContext: Manually clearing all purchase data');
+    // Manually clearing all purchase data
     setPurchasedTours([]);
     setPurchaseHistory([]);
     setIsLoadingPurchases(false);

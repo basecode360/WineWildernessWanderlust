@@ -48,7 +48,7 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
     try {
       setLoading(true);
       setError(null);
-      console.log('🌟 Loading favorites for user:', user.id);
+      // Loading favorites for user
       
       const userFavorites = await favoritesService.getUserFavorites(user.id);
       setFavorites(userFavorites);
@@ -90,7 +90,7 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
       // Refresh to get actual data
       await loadFavorites();
       
-      console.log('✅ Added to favorites:', tourId);
+      // Added to favorites
     } catch (error) {
       console.error('❌ Error adding to favorites:', error);
       setError(error instanceof Error ? error.message : 'Failed to add to favorites');
@@ -117,7 +117,7 @@ export function FavoritesProvider({ children }: FavoritesProviderProps) {
       
       await favoritesService.removeFromFavorites(user.id, tourId);
       
-      console.log('✅ Removed from favorites:', tourId);
+      // Removed from favorites
     } catch (error) {
       console.error('❌ Error removing from favorites:', error);
       setError(error instanceof Error ? error.message : 'Failed to remove from favorites');

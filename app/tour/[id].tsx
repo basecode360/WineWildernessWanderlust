@@ -75,20 +75,20 @@ export default function TourDetailScreen() {
     try {
       setIsLoadingTour(true);
       setTourError(null);
-      console.log(`Loading tour details for: ${tourId}`);
+      // Loading tour details
 
       let tourData: Tour | null = null;
 
       // First, try to load from offline cache if available
       if (isTourOffline(tourId)) {
-        console.log(`Tour ${tourId} is available offline, loading from cache...`);
+        // Tour is available offline, loading from cache
         setIsLoadingOffline(true);
         
         try {
           const offlineContent = getOfflineTour(tourId);
           if (offlineContent) {
             tourData = offlineContent.tourData;
-            console.log(`✅ Tour loaded from offline cache: ${tourData.title}`);
+            // Tour loaded from offline cache
           }
         } catch (offlineError) {
           console.warn('⚠️ Failed to load from offline cache:', offlineError);
@@ -99,11 +99,11 @@ export default function TourDetailScreen() {
 
       // If not found offline or if online, try to fetch from Supabase
       if (!tourData && isOnline) {
-        console.log(`Fetching tour ${tourId} from Supabase...`);
+        // Fetching tour from Supabase
         try {
           tourData = await getTourById(tourId);
           if (tourData) {
-            console.log(`✅ Tour loaded from Supabase: ${tourData.title} with ${tourData.stops.length} stops`);
+            // Tour loaded from Supabase
           }
         } catch (onlineError) {
           console.warn('⚠️ Failed to load from Supabase:', onlineError);
@@ -113,7 +113,7 @@ export default function TourDetailScreen() {
             const offlineContent = getOfflineTour(tourId);
             if (offlineContent) {
               tourData = offlineContent.tourData;
-              console.log(`✅ Fallback to offline data: ${tourData.title}`);
+              // Fallback to offline data
             }
           }
         }
@@ -123,7 +123,7 @@ export default function TourDetailScreen() {
       if (tourData) {
         setTour(tourData);
       } else {
-        console.log(`⚠️ Tour ${tourId} not found`);
+        // Tour not found
         if (!isOnline) {
           setTourError("This tour is not available offline. Please connect to the internet to view it.");
         } else {
@@ -155,13 +155,13 @@ export default function TourDetailScreen() {
       if (isOfflineTour && user) {
         // Try offline first
         mainImageUrl = await getOfflineImagePath(tour.id, 'main', user.id);
-        console.log(`Offline main image path: ${mainImageUrl}`);
+        // Offline main image path set
       }
       
       if (!mainImageUrl && isOnline) {
         // Fallback to online
         mainImageUrl = await getImageUrl(tour.image, tour.id, 'main');
-        console.log(`Online main image URL: ${mainImageUrl}`);
+        // Online main image URL set
       }
       
       if (mainImageUrl) {
@@ -427,11 +427,11 @@ export default function TourDetailScreen() {
             style={styles.tourImage}
             resizeMode="cover"
             onError={(e) => {
-              console.log("❌ Tour detail image error:", e.nativeEvent.error);
-              console.log("❌ Failed tour image source:", tourImageUrl);
+              // Tour detail image error
+              // Failed tour image source
             }}
             onLoad={() => {
-              console.log("✅ Tour detail image loaded");
+              // Tour detail image loaded
             }}
           />
         ) : (

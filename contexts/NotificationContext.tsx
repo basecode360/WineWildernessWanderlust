@@ -41,7 +41,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
   }, []);
 
   const initializeNotifications = async () => {
-    console.log('🔔 Initializing notification context...');
+    // Initializing notification context
     
     try {
       await notificationService.initialize();
@@ -49,7 +49,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       setSettings(currentSettings);
       setIsInitialized(true);
       
-      console.log('✅ Notification context initialized');
+      // Notification context initialized
     } catch (error) {
       console.error('❌ Failed to initialize notification context:', error);
       setIsInitialized(true); // Set to true even on error so app doesn't hang
@@ -60,7 +60,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     // Listen for notification responses (when user taps notification)
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      console.log('👆 User tapped notification:', data);
+      // User tapped notification
       
       // Handle different notification types
       handleNotificationResponse(data);
@@ -68,7 +68,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
 
     // Listen for notifications received while app is in foreground
     const receivedListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('📱 Notification received in foreground:', notification);
+      // Notification received in foreground
       // You can handle foreground notifications here if needed
     });
 
@@ -83,27 +83,27 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
     switch (data?.type) {
       case 'tour_completion':
         // Could navigate to tour completion screen or stats
-        console.log('🎉 Tour completion notification tapped');
+        // Tour completion notification tapped
         break;
       
       case 'location_based':
         // Could navigate to the specific tour/stop
-        console.log('📍 Location notification tapped');
+        // Location notification tapped
         break;
       
       case 'tour_downloaded':
         // Could navigate to offline downloads or the tour
-        console.log('⬇️ Tour downloaded notification tapped');
+        // Tour downloaded notification tapped
         break;
       
       case 'daily_reminder':
         // Could navigate to tours list
-        console.log('📅 Daily reminder tapped');
+        // Daily reminder tapped
         break;
       
       case 'location_permission':
         // Could open settings or show permission dialog
-        console.log('📍 Location permission reminder tapped');
+        // Location permission reminder tapped
         break;
     }
   };
@@ -114,7 +114,7 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
       const updatedSettings = notificationService.getSettings();
       setSettings(updatedSettings);
       
-      console.log('⚙️ Notification settings updated:', updatedSettings);
+      // Notification settings updated
     } catch (error) {
       console.error('❌ Failed to update notification settings:', error);
       throw error;

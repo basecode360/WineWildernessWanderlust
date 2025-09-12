@@ -64,7 +64,7 @@ class ProgressService {
     }
 
     try {
-      console.log('Refreshing stop-to-tour mapping cache...');
+      // Refreshing stop-to-tour mapping cache
       
       const { data: stops, error } = await supabase
         .from('stops')
@@ -86,7 +86,7 @@ class ProgressService {
       this.stopTourMappingCache = newMapping;
       this.mappingCacheExpiry = now + this.CACHE_DURATION;
       
-      console.log(`Cached ${Object.keys(newMapping).length} stop-to-tour mappings`);
+      // Cached stop-to-tour mappings
       return newMapping;
       
     } catch (error) {
@@ -104,14 +104,14 @@ class ProgressService {
   // FIXED: Mark stop as completed - MAIN METHOD
   async markStopCompleted(userId: string, stopId: string, tourId?: string, isOnline?: boolean): Promise<void> {
     const completedAt = new Date().toISOString();
-    console.log(`=== MARK STOP COMPLETED ===`);
-    console.log(`userId: ${userId}`);
-    console.log(`stopId: ${stopId}`);
-    console.log(`tourId: ${tourId}`);
+    // MARK STOP COMPLETED
+    // User ID logged
+    // Stop ID logged
+    // Tour ID logged
 
     // Use provided isOnline or check network status
     const networkOnline = isOnline !== undefined ? isOnline : await this.isOnline();
-    console.log(`Network status: ${networkOnline ? 'online' : 'offline'}`);
+    // Network status checked
 
     try {
       const completion: UserStopCompletion = {
@@ -132,10 +132,10 @@ class ProgressService {
             .limit(1);
 
           if (existing && existing.length > 0) {
-            console.log(`Stop ${stopId} already completed in database`);
+            // Stop already completed in database
           } else {
             // Insert into database
-            console.log('Inserting into database:', completion);
+            // Inserting into database
             const { data, error } = await supabase
               .from('user_stop_completion')
               .insert([{
@@ -151,7 +151,7 @@ class ProgressService {
               throw error;
             }
 
-            console.log('✅ Database insert successful:', data);
+            // Database insert successful
           }
         } catch (dbError) {
           console.error(`❌ Database operation failed for stop ${stopId}:`, dbError);
@@ -160,7 +160,7 @@ class ProgressService {
         }
       } else {
         // Offline: queue for later sync
-        console.log(`📱 Offline: queuing stop ${stopId} for sync`);
+        // Offline: queuing stop for sync
         await this.queueForOfflineSync(completion);
       }
 
@@ -175,8 +175,8 @@ class ProgressService {
       // Update cache
       this.invalidateCache(userId);
 
-      console.log(`✅ Stop ${stopId} marked as completed successfully`);
-      console.log(`=== END MARK STOP COMPLETED ===`);
+      // Stop marked as completed successfully
+      // END MARK STOP COMPLETED
     } catch (error) {
       console.error('❌ Critical error in markStopCompleted:', error);
       
@@ -188,7 +188,7 @@ class ProgressService {
           stop_id: stopId,
           completed_at: completedAt
         });
-        console.log(`💾 Fallback save completed for stop ${stopId}`);
+        // Fallback save completed for stop
       } catch (fallbackError) {
         console.error('💥 Even fallback save failed:', fallbackError);
         throw fallbackError;
@@ -232,9 +232,9 @@ class ProgressService {
         // Update cache
         this.localProgressCache.set(userId, existingProgress);
         
-        console.log(`Saved to local storage: stop ${stopId} for user ${userId}`);
+        // Saved to local storage
       } else {
-        console.log(`Stop ${stopId} already exists in local storage for user ${userId}`);
+        // Stop already exists in local storage
       }
     } catch (error) {
       console.error('Error saving to local storage:', error);
@@ -286,7 +286,7 @@ class ProgressService {
       if (!alreadyQueued) {
         existingQueue.push(completion);
         await AsyncStorage.setItem(queueKey, JSON.stringify(existingQueue));
-        console.log(`Queued completion for sync: ${completion.stop_id}`);
+        // Queued completion for sync
       }
     } catch (error) {
       console.error('Error queuing offline completion:', error);
@@ -304,7 +304,7 @@ class ProgressService {
       const queue: UserStopCompletion[] = JSON.parse(queueData);
       if (queue.length === 0) return;
 
-      console.log(`Processing ${queue.length} offline completions for user ${userId}`);
+      // Processing offline completions for user
 
       const successfulSyncs: number[] = [];
 
@@ -328,10 +328,10 @@ class ProgressService {
               }]);
 
             if (!error) {
-              console.log(`Synced completion: ${queue[i].stop_id}`);
+              // Synced completion
             }
           } else {
-            console.log(`Completion already exists in database: ${queue[i].stop_id}`);
+            // Completion already exists in database
           }
           
           successfulSyncs.push(i);
@@ -345,7 +345,7 @@ class ProgressService {
         const remainingQueue = queue.filter((_, index) => !successfulSyncs.includes(index));
         await AsyncStorage.setItem(queueKey, JSON.stringify(remainingQueue));
         
-        console.log(`Successfully synced ${successfulSyncs.length} completions for user ${userId}`);
+        // Successfully synced completions for user
       }
     } catch (error) {
       console.error(`Error processing offline queue for user ${userId}:`, error);
@@ -355,7 +355,7 @@ class ProgressService {
   // Check completion with proper offline support
   async isStopCompleted(userId: string, stopId: string, isOnline?: boolean): Promise<boolean> {
     try {
-      console.log(`Checking completion status for user ${userId}, stop ${stopId}`);
+      // Checking completion status for user
       
       // Use provided isOnline or check network status
       const networkOnline = isOnline !== undefined ? isOnline : await this.isOnline();
@@ -370,7 +370,7 @@ class ProgressService {
           .limit(1);
 
         if (!error && data && data.length > 0) {
-          console.log(`Database: stop ${stopId} is completed`);
+          // Database: stop is completed
           return true;
         }
       }
@@ -379,7 +379,7 @@ class ProgressService {
       const localProgress = await this.getLocalProgressForUser(userId);
       const isCompletedLocally = localProgress.some(p => p.stopId === stopId);
       
-      console.log(`Local storage: stop ${stopId} completion status: ${isCompletedLocally}`);
+      // Local storage completion status checked
       return isCompletedLocally;
       
     } catch (error) {
@@ -399,12 +399,12 @@ class ProgressService {
   // Get all completed stops - optimized with batch mapping
   async getCompletedStops(userId: string, isOnline?: boolean): Promise<StopProgress[]> {
     try {
-      console.log(`Getting completed stops for user: ${userId}`);
+      // Getting completed stops for user
       
       // Use provided isOnline or check network status
       const networkOnline = isOnline !== undefined ? isOnline : await this.isOnline();
       
-      console.log(`Network: ${networkOnline ? 'ONLINE' : 'OFFLINE'}`);
+      // Network status checked
       
       if (networkOnline) {
         try {
@@ -420,13 +420,13 @@ class ProgressService {
           }
 
           if (!userCompletions || userCompletions.length === 0) {
-            console.log('No completions in database for this user');
+            // No completions in database for this user
             const localData = await this.getLocalProgressForUser(userId);
-            console.log(`Local storage has ${localData.length} completions`);
+            // Local storage completions found
             return localData;
           }
 
-          console.log(`DATABASE SUCCESS: ${userCompletions.length} completions found`);
+          // DATABASE SUCCESS: completions found
           
           // Get all stop-to-tour mappings at once (more efficient)
           const mappings = await this.getStopTourMappings();
@@ -446,7 +446,7 @@ class ProgressService {
             });
           }
 
-          console.log(`FINAL DATABASE RESULT: ${completionsWithTourId.length} completions with tour_id`);
+          // FINAL DATABASE RESULT: completions with tour_id
 
           // Save to local storage and cache
           const key = this.getLocalStorageKey(userId, 'progress');
@@ -462,7 +462,7 @@ class ProgressService {
       }
 
       // Offline mode
-      console.log('OFFLINE: Using local storage only');
+      // OFFLINE: Using local storage only
       return await this.getLocalProgressForUser(userId);
     } catch (error) {
       console.error('Critical error in getCompletedStops:', error);
@@ -480,7 +480,7 @@ class ProgressService {
   // Get total completed count
   async getTotalCompletedCount(userId: string): Promise<number> {
     try {
-      console.log('Getting total completed count for user:', userId);
+      // Getting total completed count for user
       
       if (!userId || userId.trim() === '') {
         console.error('Invalid userId provided');
@@ -488,7 +488,7 @@ class ProgressService {
       }
 
       const online = await this.isOnline();
-      console.log('Network status:', online ? 'ONLINE' : 'OFFLINE');
+      // Network status checked
 
       if (online) {
         try {
@@ -504,7 +504,7 @@ class ProgressService {
             return localProgress.length;
           }
 
-          console.log('Database count result:', count);
+          // Database count result retrieved
           return count || 0;
 
         } catch (dbError) {
@@ -533,7 +533,7 @@ class ProgressService {
   // Clear all progress for specific user
   async clearAllProgress(userId: string): Promise<void> {
     try {
-      console.log(`Clearing all progress for user: ${userId}`);
+      // Clearing all progress for user
       
       // Clear from database if online
       const online = await this.isOnline();
@@ -547,7 +547,7 @@ class ProgressService {
           if (error) {
             console.warn('Could not clear from database:', error);
           } else {
-            console.log('Cleared database records for user');
+            // Cleared database records for user
           }
         } catch (dbError) {
           console.warn('Database clear failed:', dbError);
@@ -561,7 +561,7 @@ class ProgressService {
       await AsyncStorage.multiRemove([progressKey, queueKey]);
       this.invalidateCache(userId);
       
-      console.log('All progress cleared successfully');
+      // All progress cleared successfully
     } catch (error) {
       console.error('Error clearing progress:', error);
     }
@@ -570,7 +570,7 @@ class ProgressService {
   // Sync progress when user logs in
   async syncProgressOnLogin(userId: string): Promise<void> {
     try {
-      console.log(`Syncing progress on login for user: ${userId}`);
+      // Syncing progress on login for user
       
       // Process any offline queue first
       await this.processOfflineQueue(userId);
@@ -579,9 +579,9 @@ class ProgressService {
       const online = await this.isOnline();
       if (online) {
         await this.getCompletedStops(userId, online); // This will automatically merge and save locally
-        console.log(`Progress synced successfully for user ${userId}`);
+        // Progress synced successfully for user
       } else {
-        console.log(`Offline: using local progress only for user ${userId}`);
+        // Offline: using local progress only for user
       }
     } catch (error) {
       console.error('Error syncing progress on login:', error);
@@ -591,7 +591,7 @@ class ProgressService {
   // Refresh progress
   async refreshProgress(userId: string): Promise<void> {
     try {
-      console.log('Refreshing progress for user:', userId);
+      // Refreshing progress for user
       
       const online = await this.isOnline();
       if (online) {
@@ -604,7 +604,7 @@ class ProgressService {
       // Reload progress
       await this.getCompletedStops(userId, online);
       
-      console.log('Progress refreshed successfully');
+      // Progress refreshed successfully
     } catch (error) {
       console.error('Error refreshing progress:', error);
     }

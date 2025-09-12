@@ -30,7 +30,7 @@ class FavoritesService {
 
   async getUserFavorites(userId: string): Promise<FavoriteItem[]> {
     try {
-      console.log('🌟 Fetching favorites for user:', userId);
+      // Fetching favorites for user
       
       // First get the favorites data
       const { data: favoritesData, error: favoritesError } = await supabase
@@ -53,7 +53,7 @@ class FavoritesService {
       }
 
       if (!favoritesData || favoritesData.length === 0) {
-        console.log('🌟 No favorites found for user');
+        // No favorites found for user
         return [];
       }
 
@@ -92,7 +92,7 @@ class FavoritesService {
         created_at: item.created_at,
       }));
 
-      console.log('✅ Fetched favorites:', transformedData.length, 'favorites');
+      // Fetched favorites
       return transformedData;
     } catch (error) {
       console.error('❌ Error in getUserFavorites:', error);
@@ -102,7 +102,7 @@ class FavoritesService {
 
   async addToFavorites(userId: string, tourId: string): Promise<void> {
     try {
-      console.log('🌟 Adding to favorites:', { userId, tourId });
+      // Adding to favorites
 
       const { error } = await supabase
         .from('user_favorites')
@@ -122,7 +122,7 @@ class FavoritesService {
         throw new Error(`Failed to add to favorites: ${error.message}`);
       }
 
-      console.log('✅ Successfully added to favorites');
+      // Successfully added to favorites
     } catch (error) {
       console.error('❌ Error in addToFavorites:', error);
       throw error;
@@ -131,7 +131,7 @@ class FavoritesService {
 
   async removeFromFavorites(userId: string, tourId: string): Promise<void> {
     try {
-      console.log('🌟 Removing from favorites:', { userId, tourId });
+      // Removing from favorites
 
       const { error } = await supabase
         .from('user_favorites')
@@ -147,7 +147,7 @@ class FavoritesService {
         throw new Error(`Failed to remove from favorites: ${error.message}`);
       }
 
-      console.log('✅ Successfully removed from favorites');
+      // Successfully removed from favorites
     } catch (error) {
       console.error('❌ Error in removeFromFavorites:', error);
       throw error;

@@ -26,10 +26,10 @@ export class PaymentService {
    */
   clearCache(userId?: string) {
     if (userId) {
-      console.log('PaymentService: Clearing cache for user:', userId);
+      // Clearing cache for user
       this.purchaseCache.delete(userId);
     } else {
-      console.log('PaymentService: Clearing all cache');
+      // Clearing all cache
       this.purchaseCache.clear();
     }
   }
@@ -40,13 +40,13 @@ export class PaymentService {
   private getCachedPurchases(userId: string): string[] | null {
     const cached = this.purchaseCache.get(userId);
     if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
-      console.log('PaymentService: Using cached purchases for user:', userId, cached.purchases);
+      // Using cached purchases
       return cached.purchases;
     }
     
     // Remove expired cache
     if (cached) {
-      console.log('PaymentService: Cache expired for user:', userId);
+      // Cache expired
       this.purchaseCache.delete(userId);
     }
     
@@ -57,7 +57,7 @@ export class PaymentService {
    * Cache purchases for a user
    */
   private setCachedPurchases(userId: string, purchases: string[]) {
-    console.log('PaymentService: Caching purchases for user:', userId, purchases);
+    // Caching purchases for user
     this.purchaseCache.set(userId, {
       purchases,
       timestamp: Date.now()
@@ -173,11 +173,11 @@ export class PaymentService {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        console.log('PaymentService: No authenticated user');
+        // No authenticated user
         return [];
       }
 
-      console.log('PaymentService: Getting purchases for user:', user.id, 'forceRefresh:', forceRefresh);
+      // Getting purchases for user
 
       // Check cache first (unless force refresh)
       if (!forceRefresh) {
@@ -187,7 +187,7 @@ export class PaymentService {
         }
       }
 
-      console.log('PaymentService: Fetching fresh purchases from database');
+      // Fetching fresh purchases from database
 
       // First, let's get all purchases for debugging
       const { data: allData, error: allError } = await supabase
@@ -198,16 +198,7 @@ export class PaymentService {
       if (allError) {
         console.error('PaymentService: Error fetching all purchases for debug:', allError);
       } else {
-        console.log('PaymentService: All purchases for user:', {
-          userId: user.id,
-          totalCount: allData?.length || 0,
-          purchases: allData?.map(p => ({
-            tour_id: p.tour_id,
-            status: p.status,
-            created_at: p.created_at,
-            completed_at: p.completed_at
-          }))
-        });
+        // All purchases loaded for user
       }
 
       // Now get only completed purchases
@@ -224,7 +215,7 @@ export class PaymentService {
         // Return cached data if available on error
         const cached = this.getCachedPurchases(user.id);
         if (cached !== null) {
-          console.log('PaymentService: Using cached data due to error');
+          // Using cached data due to error
           return cached;
         }
         
@@ -233,12 +224,7 @@ export class PaymentService {
 
       const purchases = data?.map((purchase) => purchase.tour_id) || [];
       
-      console.log('PaymentService: Fetched completed purchases from DB:', {
-        userId: user.id,
-        completedPurchases: purchases,
-        completedCount: purchases.length,
-        rawData: data
-      });
+      // Fetched completed purchases from DB
 
       // Cache the fresh results
       this.setCachedPurchases(user.id, purchases);
@@ -258,11 +244,7 @@ export class PaymentService {
       const purchases = await this.getUserPurchases();
       const result = purchases.includes(tourId);
       
-      console.log('PaymentService: hasPurchasedTour check:', {
-        tourId,
-        result,
-        allPurchases: purchases
-      });
+      // Purchase check completed
       
       return result;
     } catch (error) {
@@ -281,11 +263,11 @@ export class PaymentService {
       } = await supabase.auth.getUser();
 
       if (!user) {
-        console.log('PaymentService: No user for purchase history');
+        // No user for purchase history
         return [];
       }
 
-      console.log('PaymentService: Fetching purchase history for user:', user.id);
+      // Fetching purchase history for user
 
       const { data, error } = await supabase
         .from('user_purchases')
@@ -309,17 +291,7 @@ export class PaymentService {
         return [];
       }
 
-      console.log('PaymentService: Purchase history loaded:', {
-        userId: user.id,
-        recordCount: data?.length || 0,
-        records: data?.map(record => ({
-          tour_id: record.tour_id,
-          status: record.status,
-          amount: record.amount,
-          created_at: record.created_at,
-          completed_at: record.completed_at
-        }))
-      });
+      // Purchase history loaded
       
       return data || [];
     } catch (error) {

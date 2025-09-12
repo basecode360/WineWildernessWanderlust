@@ -25,7 +25,7 @@ class PurchaseHistoryService {
 
   async getUserPurchaseHistory(userId: string): Promise<PurchaseHistoryItem[]> {
     try {
-      console.log('📊 Fetching purchase history for user:', userId);
+      // Fetching purchase history for user
       
       // First get the purchase data
       const { data: purchaseData, error: purchaseError } = await supabase
@@ -50,7 +50,7 @@ class PurchaseHistoryService {
       }
 
       if (!purchaseData || purchaseData.length === 0) {
-        console.log('📊 No purchase history found for user');
+        // No purchase history found for user
         return [];
       }
 
@@ -90,7 +90,7 @@ class PurchaseHistoryService {
         metadata: item.metadata || {},
       }));
 
-      console.log('✅ Fetched purchase history:', transformedData.length, 'purchases');
+      // Fetched purchase history
       return transformedData;
     } catch (error) {
       console.error('❌ Error in getUserPurchaseHistory:', error);

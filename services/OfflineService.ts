@@ -33,7 +33,7 @@ export class OfflineService {
       const dirInfo = await FileSystem.getInfoAsync(this.baseDir);
       if (!dirInfo.exists) {
         await FileSystem.makeDirectoryAsync(this.baseDir, { intermediates: true });
-        console.log('📁 Created offline tours directory');
+        // Created offline tours directory
       }
     } catch (error) {
       console.error('❌ Error creating base directory:', error);
@@ -62,7 +62,7 @@ export class OfflineService {
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`📥 Downloading ${url} (attempt ${attempt}/${maxRetries})`);
+        // Downloading file
         
         // Ensure directory exists
         const dir = localPath.substring(0, localPath.lastIndexOf('/'));
@@ -83,7 +83,7 @@ export class OfflineService {
           // Verify file was actually downloaded
           const fileInfo = await FileSystem.getInfoAsync(localPath);
           if (fileInfo.exists && fileInfo.size && fileInfo.size > 0) {
-            console.log(`✅ Downloaded: ${url} -> ${localPath} (${fileInfo.size} bytes)`);
+            // Downloaded file successfully
             return true;
           } else {
             throw new Error('Downloaded file is empty or corrupted');
@@ -140,7 +140,7 @@ export class OfflineService {
   // Cancel download method
   async cancelDownload(tourId: string): Promise<void> {
     this.downloadCancellationTokens.set(tourId, true);
-    console.log(`❌ Download cancellation requested for ${tourId}`);
+    // Download cancellation requested
   }
   async getOfflineContentForUser(userId: string, tourId: string): Promise<OfflineContent | null> {
   try {
@@ -174,7 +174,7 @@ async downloadTourWithAssetsForUser(
   userId: string,
   onProgress?: (current: number, total: number, currentFile: string) => void
 ): Promise<boolean> {
-  console.log(`👤🔄 downloadTourWithAssetsForUser: user=${userId}, tour=${tour.id}`);
+  // Starting tour download for user
   const ok = await this.downloadTourWithAssets(tour, onProgress);
   if (!ok) {
     console.warn(`👤❌ downloadTourWithAssetsForUser failed for user=${userId}, tour=${tour.id}`);
@@ -206,7 +206,7 @@ async downloadTourWithAssetsForUser(
       await AsyncStorage.setItem(this.getOfflineStorageKey(userId, tour.id, 'date'), new Date().toISOString());
     }
 
-    console.log(`👤✅ Mirrored metadata under user scope for user=${userId}, tour=${tour.id}`);
+    // Mirrored metadata under user scope
     return true;
   } catch (e) {
     console.error('👤❌ Error mirroring user-scoped metadata:', e);
@@ -221,7 +221,7 @@ async downloadTourWithAssetsForUser(
     onProgress?: (current: number, total: number, currentFile: string) => void
   ): Promise<boolean> {
     try {
-      console.log(`🔄 Starting download for tour: ${tour.title}`);
+      // Starting download for tour
       
       const tourDir = this.getTourDirectory(tour.id);
       const audioDir = this.getAudioDirectory(tour.id);
@@ -276,7 +276,7 @@ async downloadTourWithAssetsForUser(
       const totalFiles = imagesToDownload.length + audiosToDownload.length;
       let downloadedFiles = 0;
 
-      console.log(`📊 Total files to download: ${totalFiles}`);
+      // Total files to download calculated
       onProgress?.(downloadedFiles, totalFiles, 'Starting download...');
 
       // Download images
@@ -293,7 +293,7 @@ async downloadTourWithAssetsForUser(
         
         if (success) {
           imageFiles[img.key] = localPath;
-          console.log(`✅ Image downloaded: ${img.key} -> ${localPath}`);
+          // Image downloaded successfully
         } else {
           console.warn(`⚠️ Failed to download image: ${img.url}`);
           // Continue with download even if some images fail
@@ -317,7 +317,7 @@ async downloadTourWithAssetsForUser(
         
         if (success) {
           audioFiles[audio.key] = localPath;
-          console.log(`✅ Audio downloaded: ${audio.key} -> ${localPath}`);
+          // Audio downloaded successfully
         } else {
           console.warn(`⚠️ Failed to download audio: ${audio.url}`);
           // Continue with download even if some audio files fail
@@ -363,9 +363,9 @@ async downloadTourWithAssetsForUser(
       await AsyncStorage.setItem(`tour_${tour.id}_offline`, 'true');
       await AsyncStorage.setItem(`tour_${tour.id}_download_date`, new Date().toISOString());
 
-      console.log(`✅ Tour ${tour.title} downloaded successfully`);
-      console.log(`📊 Downloaded ${downloadedFiles}/${totalFiles} files`);
-      console.log(`📊 Total size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`);
+      // Tour downloaded successfully
+      // Downloaded files summary
+      // Download size summary
 
       onProgress?.(totalFiles, totalFiles, 'Download completed!');
       
@@ -439,7 +439,7 @@ async downloadTourWithAssetsForUser(
 // Get all offline tours for a specific user
 async getAllOfflineToursForUser(userId: string): Promise<OfflineContent[]> {
   try {
-    console.log(`📱 Getting offline tours for user: ${userId}`);
+    // Getting offline tours for user
     
     const keys = await AsyncStorage.getAllKeys();
     const userOfflineKeys = keys.filter(key => 
@@ -475,7 +475,7 @@ async getAllOfflineToursForUser(userId: string): Promise<OfflineContent[]> {
       }
     }
     
-    console.log(`📊 Found ${userOfflineTours.length} offline tours for user ${userId}`);
+    // Found offline tours for user
     return userOfflineTours;
   } catch (error) {
     console.error(`❌ Error getting offline tours for user ${userId}:`, error);
@@ -570,7 +570,7 @@ async getStorageStatsForUser(userId: string): Promise<{ totalSize: number; tourC
 // Remove tour for a specific user (cleans both user metadata + global files)
 async removeTourForUser(userId: string, tourId: string): Promise<void> {
   try {
-    console.log(`👤🗑️ Removing offline tour for user=${userId}, tour=${tourId}`);
+    // Removing offline tour for user
 
     // Remove user-specific metadata
     await AsyncStorage.removeItem(this.getOfflineStorageKey(userId, tourId, 'content'));
@@ -580,7 +580,7 @@ async removeTourForUser(userId: string, tourId: string): Promise<void> {
     // Also remove global files + global metadata
     await this.removeTour(tourId);
 
-    console.log(`👤✅ Tour ${tourId} removed for user ${userId}`);
+    // Tour removed for user
   } catch (error) {
     console.error(`👤❌ Error removing tour for user=${userId}, tour=${tourId}:`, error);
     throw error;
@@ -612,14 +612,14 @@ async getOfflineImagePath(tourId: string, imageKey: string, userId?: string): Pr
   // Remove tour
   async removeTour(tourId: string): Promise<void> {
     try {
-      console.log(`🗑️ Removing offline tour: ${tourId}`);
+      // Removing offline tour
       
       // Remove files from filesystem
       const tourDir = this.getTourDirectory(tourId);
       const dirInfo = await FileSystem.getInfoAsync(tourDir);
       if (dirInfo.exists) {
         await FileSystem.deleteAsync(tourDir, { idempotent: true });
-        console.log(`✅ Removed tour directory: ${tourDir}`);
+        // Removed tour directory
       }
 
       // Remove from AsyncStorage
@@ -627,7 +627,7 @@ async getOfflineImagePath(tourId: string, imageKey: string, userId?: string): Pr
       await AsyncStorage.removeItem(`tour_${tourId}_offline_content`);
       await AsyncStorage.removeItem(`tour_${tourId}_download_date`);
 
-      console.log(`✅ Tour ${tourId} removed completely`);
+      // Tour removed completely
     } catch (error) {
       console.error(`❌ Error removing tour ${tourId}:`, error);
       throw error;
@@ -637,7 +637,7 @@ async getOfflineImagePath(tourId: string, imageKey: string, userId?: string): Pr
   // Clear all offline content
   async clearAllOfflineContent(): Promise<void> {
     try {
-      console.log('🗑️ Clearing all offline content...');
+      // Clearing all offline content
       
       // Remove all tour directories
       const baseInfo = await FileSystem.getInfoAsync(this.baseDir);
@@ -660,7 +660,7 @@ async getOfflineImagePath(tourId: string, imageKey: string, userId?: string): Pr
         await AsyncStorage.multiRemove(offlineKeys);
       }
 
-      console.log('✅ All offline content cleared');
+      // All offline content cleared
     } catch (error) {
       console.error('❌ Error clearing all offline content:', error);
       throw error;

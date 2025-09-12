@@ -54,11 +54,11 @@ export default function OfflineDownloadsScreen() {
   } = useOffline();
 
   // DEBUG LOGS for offline mode
-  console.log('📱 STRICT OFFLINE Downloads Screen:');
-  console.log('📊 offlineTours:', offlineTours.length);
-  console.log('📊 totalStorageUsed:', totalStorageUsed);
-  console.log('📊 isOnline:', isOnline);
-  console.log('📊 Storage formatted:', formatStorageSize(totalStorageUsed));
+  // STRICT OFFLINE Downloads Screen
+  // Offline tours count logged
+  // Total storage used logged
+  // Online status logged
+  // Storage formatted logged
 
   // Load tour images when offline tours change
   useEffect(() => {
@@ -255,7 +255,7 @@ const formatDownloadDate = (dateString: string) => {
                 console.warn('Failed to load offline tour image:', error.nativeEvent.error);
               }}
               onLoad={() => {
-                console.log(`✅ Successfully loaded image for tour ${item.tourId}`);
+                // Successfully loaded image for tour
               }}
             />
           ) : (

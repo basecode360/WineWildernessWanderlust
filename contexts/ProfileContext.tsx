@@ -45,7 +45,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     try {
       setLoading(true);
       setError(null);
-      console.log('👤 Creating profile for user:', user.id);
+      // Creating profile for user
       
       // Create a basic profile from user data
       const profileData: UserProfile = {
@@ -79,7 +79,7 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       const updatedProfile = { ...profile, ...updates };
       setProfile(updatedProfile);
       
-      console.log('✅ Profile updated successfully');
+      // Profile updated successfully
     } catch (error) {
       console.error('❌ Error updating profile:', error);
       setError(error instanceof Error ? error.message : 'Failed to update profile');

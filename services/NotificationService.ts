@@ -43,7 +43,7 @@ class NotificationService {
 
   // Initialize notification service
   async initialize(): Promise<void> {
-    console.log('📱 Initializing NotificationService...');
+    // Initializing NotificationService
     
     try {
       // Load saved settings
@@ -57,7 +57,7 @@ class NotificationService {
         await this.registerForPushNotifications();
       }
 
-      console.log('✅ NotificationService initialized successfully');
+      // NotificationService initialized successfully
     } catch (error) {
       console.error('❌ Failed to initialize NotificationService:', error);
     }
@@ -66,7 +66,7 @@ class NotificationService {
   // Request notification permissions
   async requestPermissions(): Promise<boolean> {
     try {
-      console.log('🔔 Requesting notification permissions...');
+      // Requesting notification permissions
       
       const { status } = await Notifications.requestPermissionsAsync();
       
@@ -77,7 +77,7 @@ class NotificationService {
         return false;
       }
 
-      console.log('✅ Notification permissions granted');
+      // Notification permissions granted
       return true;
     } catch (error) {
       console.error('❌ Error requesting notification permissions:', error);
@@ -98,7 +98,7 @@ class NotificationService {
       }
 
       const token = (await Notifications.getExpoPushTokenAsync()).data;
-      console.log('📱 Push notification token:', token);
+      // Push notification token registered
       
       this.pushToken = token;
       return token;
@@ -115,7 +115,7 @@ class NotificationService {
 
   // Update notification settings
   async updateSettings(newSettings: Partial<NotificationSettings>): Promise<void> {
-    console.log('⚙️ Updating notification settings:', newSettings);
+    // Updating notification settings
     
     this.settings = { ...this.settings, ...newSettings };
     await this.saveSettings();
@@ -132,7 +132,7 @@ class NotificationService {
       const stored = await AsyncStorage.getItem(STORAGE_KEY);
       if (stored) {
         this.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-        console.log('📱 Loaded notification settings:', this.settings);
+        // Loaded notification settings
       }
     } catch (error) {
       console.error('❌ Error loading notification settings:', error);
@@ -144,7 +144,7 @@ class NotificationService {
   private async saveSettings(): Promise<void> {
     try {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
-      console.log('💾 Saved notification settings:', this.settings);
+      // Saved notification settings
     } catch (error) {
       console.error('❌ Error saving notification settings:', error);
     }
@@ -153,7 +153,7 @@ class NotificationService {
   // Send tour completion notification
   async sendTourCompletionNotification(tourTitle: string, completedStops: number, totalStops: number): Promise<void> {
     if (!this.settings.tourCompletion) {
-      console.log('🔇 Tour completion notifications disabled');
+      // Tour completion notifications disabled
       return;
     }
 
@@ -178,7 +178,7 @@ class NotificationService {
           trigger: null, // Send immediately
         });
 
-        console.log('📱 Sent tour completion push notification');
+        // Sent tour completion push notification
       }
     } catch (error) {
       console.error('❌ Error sending tour completion notification:', error);
@@ -188,7 +188,7 @@ class NotificationService {
   // Send location-based notification
   async sendLocationNotification(message: string, stopTitle: string, tourTitle: string): Promise<void> {
     if (!this.settings.locationBased) {
-      console.log('🔇 Location-based notifications disabled');
+      // Location-based notifications disabled
       return;
     }
 
@@ -207,7 +207,7 @@ class NotificationService {
           trigger: null, // Send immediately
         });
 
-        console.log('📍 Sent location-based push notification');
+        // Sent location-based push notification
       }
     } catch (error) {
       console.error('❌ Error sending location notification:', error);
@@ -232,7 +232,7 @@ class NotificationService {
         trigger: null,
       });
 
-      console.log('📍 Sent location permission reminder');
+      // Sent location permission reminder
     } catch (error) {
       console.error('❌ Error sending location permission reminder:', error);
     }
@@ -257,7 +257,7 @@ class NotificationService {
         trigger: null,
       });
 
-      console.log('⬇️ Sent tour downloaded notification');
+      // Sent tour downloaded notification
     } catch (error) {
       console.error('❌ Error sending tour downloaded notification:', error);
     }
@@ -290,7 +290,7 @@ class NotificationService {
         },
       });
 
-      console.log('📅 Scheduled daily tour reminder');
+      // Scheduled daily tour reminder
     } catch (error) {
       console.error('❌ Error scheduling daily reminder:', error);
     }
@@ -307,7 +307,7 @@ class NotificationService {
       }
 
       if (toCancel.length > 0) {
-        console.log(`🗑️ Cancelled ${toCancel.length} notifications of type: ${type}`);
+        // Cancelled notifications of type
       }
     } catch (error) {
       console.error('❌ Error cancelling notifications:', error);
@@ -318,7 +318,7 @@ class NotificationService {
   async cancelAllNotifications(): Promise<void> {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
-      console.log('🗑️ Cancelled all scheduled notifications');
+      // Cancelled all scheduled notifications
     } catch (error) {
       console.error('❌ Error cancelling all notifications:', error);
     }
