@@ -128,6 +128,8 @@ export default function TourPlayerScreen() {
   const [triggeredStopsThisSession, setTriggeredStopsThisSession] = useState<
     Set<string>
   >(new Set());
+  // Permanent record of stops that have been auto-triggered by location (never cleared)
+  const [autoTriggeredStops, setAutoTriggeredStops] = useState<Set<string>>(new Set());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showLocationWarning, setShowLocationWarning] = useState(false);
 
@@ -390,6 +392,7 @@ export default function TourPlayerScreen() {
     hideToast();
     setShowLocationWarning(false);
     setTriggeredStopsThisSession(new Set());
+    // Keep autoTriggeredStops intact when forcing play manually
 
     const nextIndex = currentStopIndex + 1;
     setCurrentStopIndex(nextIndex);
@@ -399,7 +402,7 @@ export default function TourPlayerScreen() {
     }, 300);
   };
 
-  // Initialize audio session for iOS
+  // Initialize audio session for iOS and Android background playback
   useEffect(() => {
     const initializeAudio = async () => {
       try {
@@ -407,11 +410,15 @@ export default function TourPlayerScreen() {
           allowsRecordingIOS: false,
           staysActiveInBackground: true,
           playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
+          shouldDuckAndroid: false, // Don't duck other apps for tour audio
           playThroughEarpieceAndroid: false,
+          // Set proper interruption modes for background playback
+          interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
+          interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
         });
+        console.log('Audio session initialized for background playback');
       } catch (error) {
-        // Failed to initialize audio session
+        console.warn('Failed to initialize audio session:', error);
       }
     };
 
@@ -721,8 +728,9 @@ export default function TourPlayerScreen() {
     }
 
     if (bestStop && bestIndex >= 0) {
-      // Prevent re-triggering any stop that has already been triggered this session
-      if (triggeredStopsThisSession.has(bestStop.id)) {
+      // FIXED: Prevent re-triggering any stop that has already been auto-triggered by location
+      // This persists for the entire tour session and is never cleared
+      if (autoTriggeredStops.has(bestStop.id)) {
         return;
       }
 
@@ -761,6 +769,8 @@ export default function TourPlayerScreen() {
       isTriggeringRef.current = true;
       setLastTriggeredStopId(bestStop.id);
       setTriggeredStopsThisSession((prev) => new Set([...prev, bestStop.id]));
+      // FIXED: Mark this stop as permanently auto-triggered by location (never gets cleared)
+      setAutoTriggeredStops((prev) => new Set([...prev, bestStop.id]));
 
       triggerAudioForStop(bestStop, bestIndex, true) // true = triggered by location
         .catch(() => {
@@ -1159,6 +1169,7 @@ export default function TourPlayerScreen() {
     cancelAutoPlay();
     setLastTriggeredStopId(null);
     // Clear session triggers when user manually navigates - allows location triggers to work again
+    // BUT keep autoTriggeredStops intact to prevent re-triggering of location-based stops
     setTriggeredStopsThisSession(new Set());
 
     // If this is the currently selected stop
@@ -1189,6 +1200,7 @@ export default function TourPlayerScreen() {
     if (currentStopIndex > 0) {
       cancelAutoPlay();
       setTriggeredStopsThisSession(new Set()); // Clear session triggers on navigation
+      // Keep autoTriggeredStops intact to prevent location re-triggering
       const nextIndex = currentStopIndex - 1;
       triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }
@@ -1199,6 +1211,7 @@ export default function TourPlayerScreen() {
     if (currentStopIndex < tour.stops.length - 1) {
       cancelAutoPlay();
       setTriggeredStopsThisSession(new Set()); // Clear session triggers on navigation
+      // Keep autoTriggeredStops intact to prevent location re-triggering
       const nextIndex = currentStopIndex + 1;
       triggerAudioForStop(tour.stops[nextIndex], nextIndex, false);
     }
