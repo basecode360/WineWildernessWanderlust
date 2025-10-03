@@ -11,7 +11,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio"],
+        "UIBackgroundModes": [
+          "audio"
+        ],
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses location to automatically play audio when you reach tour stops.",
         "NSLocationWhenInUseUsageDescription": "This app uses location to automatically play audio when you reach tour stops."
       }
@@ -49,7 +51,9 @@
         {
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

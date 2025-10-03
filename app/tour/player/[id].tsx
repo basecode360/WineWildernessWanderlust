@@ -166,7 +166,7 @@ export default function TourPlayerScreen() {
           // fire-and-forget best effort; ignore errors
           try {
             await getCachedAudioUri(tour.id, s.id, s.audio);
-          } catch {}
+          } catch { }
         })
       );
     } finally {
@@ -406,19 +406,32 @@ export default function TourPlayerScreen() {
   useEffect(() => {
     const initializeAudio = async () => {
       try {
+        console.log('Initializing background audio session...');
+
         await Audio.setAudioModeAsync({
           allowsRecordingIOS: false,
-          staysActiveInBackground: true,
+          staysActiveInBackground: true, // Critical for background playback
           playsInSilentModeIOS: true,
-          shouldDuckAndroid: false, // Don't duck other apps for tour audio
+          shouldDuckAndroid: false,
           playThroughEarpieceAndroid: false,
-          // Set proper interruption modes for background playback
-          interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
-          interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
         });
-        console.log('Audio session initialized for background playback');
+
+        // Request audio permissions explicitly
+        const { status } = await Audio.requestPermissionsAsync();
+        if (status !== 'granted') {
+          console.warn('Audio permissions not granted');
+          Alert.alert(
+            'Audio Permission Required',
+            'Please allow audio access for tour playback to work properly.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        console.log('Background audio session initialized successfully');
       } catch (error) {
-        console.warn('Failed to initialize audio session:', error);
+        console.error('Failed to initialize audio session:', error);
+        console.log('Continuing anyway - audio should still work');
       }
     };
 
@@ -523,10 +536,10 @@ export default function TourPlayerScreen() {
                   : '',
                 image: stop.image_path
                   ? await getImageUrl(
-                      stop.image_path,
-                      data.id,
-                      `${stop.id}_image`
-                    )
+                    stop.image_path,
+                    data.id,
+                    `${stop.id}_image`
+                  )
                   : '',
                 transcript: stop.transcript || '',
                 address: stop.address || '',
@@ -789,7 +802,7 @@ export default function TourPlayerScreen() {
         // Detach listener first to avoid stray callbacks after unload
         try {
           audioRef.current.setOnPlaybackStatusUpdate(null as any);
-        } catch {}
+        } catch { }
 
         const status = await audioRef.current.getStatusAsync();
 
